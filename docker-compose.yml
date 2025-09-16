@@ -1,0 +1,24 @@
+services:
+  web:
+    build: .
+    container_name: team2_web
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,host.docker.internal"
+      DJANGO_DEBUG: "True"
+      DJANGO_TIME_ZONE: "Asia/Seoul"
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: team2_prom
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - web
+    restart: unless-stopped
