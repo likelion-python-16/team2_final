@@ -41,7 +41,8 @@ INSTALLED_APPS = [
     
     #DRF
     'rest_framework',
-    'rest_framework_simplejwt',    
+    'rest_framework_simplejwt', 
+    'django_filters',   
 
     # 내 앱들
     'users',
@@ -56,11 +57,16 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
+    # 기본: GET은 익명 허용, POST/PUT/DELETE는 인증 필요
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+    ],
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
     ],
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',  # 개발 편의용
     ],
 }
 
@@ -68,12 +74,10 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    
+    'ROTATE_REFRESH_TOKENS': False,      # 블랙리스트 안 쓰므로 False
+    'BLACKLIST_AFTER_ROTATION': False,   # 블랙리스트 안 쓰므로 False
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
-    
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
     'USER_ID_FIELD': 'id',

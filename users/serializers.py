@@ -1,7 +1,24 @@
 from rest_framework import serializers
 from .models import CustomUser, UserProfile, HealthData
+from django.contrib.auth import get_user_model
+
+#--- 추가 ----
+
+User = get_user_model()
+
+class UserSerializer(serializers.ModelSerializer):
+    """
+    유저 기본 직렬화기
+    - username/id는 읽기전용 (아이디 변경 방지)
+    - is_active는 일반 PATCH로는 수정 불가(휴면/복구는 별도 액션에서 처리)
+    """
+    class Meta:
+        model = User
+        fields = ["id", "username", "email", "first_name", "last_name", "is_active", "date_joined"]
+        read_only_fields = ["id", "username", "is_active", "date_joined"]
 
 
+# ---- 추가 끝 ----
 class CustomUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
