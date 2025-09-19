@@ -1,6 +1,12 @@
-from django.urls import path
-from . import views
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import GoalViewSet, DailyGoalViewSet, GoalProgressViewSet
+
+router = DefaultRouter()
+router.register(r'api/goals', GoalViewSet)
+router.register(r'api/dailygoals', DailyGoalViewSet)
+router.register(r'api/progress', GoalProgressViewSet)
 
 urlpatterns = [
-    # 일단 빈 리스트로 시작
+    path('', include(router.urls)),
 ]

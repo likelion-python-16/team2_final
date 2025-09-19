@@ -4,93 +4,55 @@ from django.conf import settings
 
 class Exercise(models.Model):
     """운동 종목"""
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-    kcal_burned_per_min = models.FloatField(default=0.0)
+    name = models.CharField(max_length=100, verbose_name="이름")
+    description = models.TextField(blank=True, verbose_name="설명")
+    kcal_burned_per_min = models.FloatField(default=0.0, verbose_name="분당 소모 칼로리")
 
     def __str__(self):
         return self.name
 
+    class Meta:
+        verbose_name = "운동"
+        verbose_name_plural = "운동 목록"
 
 class WorkoutPlan(models.Model):
-    """사용자의 운동 계획 (AI 생성 메타데이터 포함)"""
-
-    class PlanSource(models.TextChoices):
-        MANUAL = "manual", "Manual"
-        AI_INITIAL = "ai_initial", "AI Initial"
-        AI_UPDATE = "ai_update", "AI Update"
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workout_plans")
-    goal = models.ForeignKey("goals.Goal", on_delete=models.SET_NULL, related_name="workout_plans", null=True, blank=True)
-    title = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-    summary = models.TextField(blank=True)
-    source = models.CharField(max_length=20, choices=PlanSource.choices, default=PlanSource.MANUAL)
-    ai_model = models.CharField(max_length=100, blank=True)
-    ai_version = models.CharField(max_length=50, blank=True)
-    ai_prompt = models.TextField(blank=True)
-    ai_response = models.JSONField(null=True, blank=True)
-    ai_confidence = models.FloatField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    last_synced_at = models.DateTimeField(null=True, blank=True)
+    """사용자의 운동 계획"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workout_plans", verbose_name="사용자")
+    title = models.CharField(max_length=100, verbose_name="제목")
+    description = models.TextField(blank=True, verbose_name="설명")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일")
 
     def __str__(self):
         return f"{self.user} - {self.title}"
 
+    class Meta:
+        verbose_name = "운동 계획"
+        verbose_name_plural = "운동 계획 목록"
 
 class TaskItem(models.Model):
     """운동 계획 속 개별 운동 Task"""
-
-    class IntensityLevel(models.TextChoices):
-        LOW = "low", "Low"
-        MEDIUM = "medium", "Medium"
-        HIGH = "high", "High"
-
-    workout_plan = models.ForeignKey(WorkoutPlan, on_delete=models.CASCADE, related_name="tasks")
-    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name="task_items")
-    duration_min = models.PositiveIntegerField(default=0)
-    target_sets = models.PositiveIntegerField(null=True, blank=True)
-    target_reps = models.PositiveIntegerField(null=True, blank=True)
-    intensity = models.CharField(max_length=10, choices=IntensityLevel.choices, default=IntensityLevel.MEDIUM)
-    notes = models.TextField(blank=True)
-    is_ai_recommended = models.BooleanField(default=False)
-    ai_goal = models.CharField(max_length=100, blank=True)
-    ai_metadata = models.JSONField(null=True, blank=True)
-    order = models.PositiveIntegerField(default=1)
+    workout_plan = models.ForeignKey(WorkoutPlan, on_delete=models.CASCADE, related_name="tasks", verbose_name="운동 계획")
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, related_name="task_items", verbose_name="운동")
+    duration_min = models.PositiveIntegerField(default=0, verbose_name="운동 시간(분)")
+    order = models.PositiveIntegerField(default=1, verbose_name="순서")
 
     def __str__(self):
         return f"{self.exercise.name} ({self.duration_min} min)"
 
+    class Meta:
+        verbose_name = "작업 항목"
+        verbose_name_plural = "작업 항목 목록"
 
 class WorkoutLog(models.Model):
     """운동 수행 기록"""
-
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workout_logs")
-    workout_plan = models.ForeignKey(WorkoutPlan, on_delete=models.SET_NULL, related_name="workout_logs", null=True, blank=True)
-    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE)
-    task_item = models.ForeignKey(TaskItem, on_delete=models.SET_NULL, related_name="workout_logs", null=True, blank=True)
-    date = models.DateField()
-    duration_min = models.PositiveIntegerField(default=0)
-    kcal_burned = models.FloatField(default=0.0)
-    perceived_exertion = models.PositiveIntegerField(null=True, blank=True)
-    ai_adjusted = models.BooleanField(default=False)
-    notes = models.TextField(blank=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="workout_logs", verbose_name="사용자")
+    exercise = models.ForeignKey(Exercise, on_delete=models.CASCADE, verbose_name="운동")
+    date = models.DateField(verbose_name="날짜")
+    duration_min = models.PositiveIntegerField(default=0, verbose_name="운동 시간(분)")
+    kcal_burned = models.FloatField(default=0.0, verbose_name="소모 칼로리")
 
     def __str__(self):
         return f"{self.user} - {self.exercise.name} ({self.date})"
-
-
-class WorkoutPlanGenerationLog(models.Model):
-    """AI가 생성하거나 수정한 운동 계획 기록"""
-
-    plan = models.ForeignKey(WorkoutPlan, on_delete=models.CASCADE, related_name="generation_logs")
-    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="workout_plan_generation_logs")
-    ai_model = models.CharField(max_length=100)
-    ai_version = models.CharField(max_length=50, blank=True)
-    prompt = models.TextField()
-    response = models.JSONField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.plan} - {self.ai_model}"
+    class Meta:
+        verbose_name = "운동 기록"
+        verbose_name_plural = "운동 기록 목록"
