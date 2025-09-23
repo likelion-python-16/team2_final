@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}홈{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+{% endblock %}
+{% block content %}
+<section class="hero-container">
+  <div class="hero-mesh-bg"></div>
+
+  <div class="hero-floating hero-floating--one"></div>
+  <div class="hero-floating hero-floating--two"></div>
+  <div class="hero-floating hero-floating--three"></div>
+
+  <div class="hero-content">
+    <div class="hero-pill" data-animate="zoom">
+      <div class="hero-pill__icon">
+        <span class="hero-pill__spark">☀️</span>
+      </div>
+      <span class="hero-pill__label">AI-Powered Health Platform</span>
+    </div>
+
+    <h1 class="hero-title" data-animate="slide-up">
+      <span class="hero-title__word" data-words='["Smarter Training.", "Smarter Eating.", "Better Results."]'>Smarter Training.</span>
+    </h1>
+
+    <p class="hero-subtitle" data-animate="fade-up">
+      Transform your fitness journey with personalized AI coaching that adapts to your goals,
+      analyzes your nutrition, and optimizes your training for maximum results.
+    </p>
+
+    <div class="hero-actions" data-animate="fade-up">
+      <a href="/tasks/dashboard/" class="hero-cta">
+        <span class="hero-cta__icon">⚡</span>
+        <span>Start Your Journey</span>
+        <span class="hero-cta__arrow">➔</span>
+      </a>
+
+      <div class="hero-tags">
+        <div class="hero-tag"><span class="hero-tag__dot hero-tag__dot--green"></span>AI-Powered</div>
+        <div class="hero-tag"><span class="hero-tag__dot hero-tag__dot--blue"></span>Personalized</div>
+        <div class="hero-tag"><span class="hero-tag__dot hero-tag__dot--purple"></span>Data-Driven</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hero-scroll" data-animate="fade-in">
+    <span>Scroll to explore</span>
+    <div class="hero-scroll__frame">
+      <span class="hero-scroll__dot"></span>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block extra_script %}
+  {{ block.super }}
+  <script src="{% static 'js/landing.js' %}"></script>
+{% endblock %}

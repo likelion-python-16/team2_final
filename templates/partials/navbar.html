@@ -1,0 +1,13 @@
+<a class="logo" href="/">Healthcare</a>
+<nav class="nav" aria-label="주요 메뉴">
+  <a href="/#features">기능</a>
+  <a href="/#planner">주간플래너</a>
+  <a href="/#diet">식단</a>
+  <a href="/#feedback">피드백</a>
+  <a href="/tasks/dashboard/" class="btn btn--ghost">대시보드</a>
+  <a href="/users/profile/" class="btn btn--ghost">프로필</a>
+  <form method="post" action="/accounts/logout/" class="nav-logout">
+    {% csrf_token %}
+    <button type="submit" class="btn btn--ghost">로그아웃</button>
+  </form>
+</nav>

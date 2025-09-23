@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Nutrition Tracker{% endblock %}
+
+{% block content %}
+<div class="meals-shell">
+  <header class="meals-header">
+    <div class="meals-header__inner">
+      <h1>Nutrition Tracker</h1>
+      <p>AI-powered meal planning and nutrition insights</p>
+    </div>
+  </header>
+
+  <main class="meals-main">
+    <section class="meals-card">
+      <h2>Today's Nutrition</h2>
+      <div class="meal-summary-grid">
+        {% for item in nutrition_summary %}
+          <div class="meal-summary">
+            <div class="meal-summary__value meal-summary__value--{{ item.color }}">
+              <span>{{ item.current }}</span>
+              <span class="meal-summary__unit">/ {{ item.goal }} {{ item.unit }}</span>
+            </div>
+            <div class="meal-progress">
+              <span class="meal-progress__fill meal-progress__fill--{{ item.color }}" style="width: {{ item.progress }}%"></span>
+            </div>
+            <p class="meal-summary__label">{{ item.label }}</p>
+          </div>
+        {% endfor %}
+      </div>
+
+      {% for card in ai_feedback_cards %}
+        <div class="ai-feedback-card ai-feedback-card--{{ card.type }}">
+          <span class="ai-feedback-card__icon" aria-hidden="true">
+            {% if card.type == 'suggestion' %}
+              <svg viewBox="0 0 24 24" focusable="false"><path d="M12 2a7 7 0 0 0-4 12.74V18a2 2 0 0 0 2 2h4v-1.5h-3v-1.88A7 7 0 0 0 12 2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            {% else %}
+              <svg viewBox="0 0 24 24" focusable="false"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 6v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="16" r=".8" fill="currentColor"/></svg>
+            {% endif %}
+          </span>
+          <p>{{ card.message }}</p>
+        </div>
+      {% endfor %}
+    </section>
+
+    <section class="meals-card">
+      <h2 class="meals-card__title">
+        <span class="meals-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Zm8 3a4 4 0 1 0 4 4 4 4 0 0 0-4-4Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        Upload Food Photo
+      </h2>
+      <div class="meal-photo" data-meal-photo-widget>
+        <div class="meal-photo__empty" data-photo-empty>
+          <div class="meal-photo__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M12 16v-8m0 0-3 3m3-3 3 3M6.5 19h11a2.5 2.5 0 0 0 0-5h-.3a4.8 4.8 0 0 0-9.4 0h-.3a2.5 2.5 0 0 0 0 5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="meal-photo__text">
+            <p class="meal-photo__title">Take or upload a photo of your meal</p>
+            <p class="meal-photo__subtitle">AI will automatically track nutrition and calories</p>
+          </div>
+          <label class="meal-photo__button">
+            <input type="file" accept="image/*" class="sr-only" data-photo-input>
+            <span>Upload Photo</span>
+          </label>
+        </div>
+        <div class="meal-photo__preview" data-photo-preview hidden>
+          <img src="" alt="Uploaded meal" data-photo-image>
+          <div class="meal-photo__status">
+            <div class="meal-photo__status-icon">🤖</div>
+            <p>AI is analyzing your food...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="meals-card">
+      <h2>Today's Meals</h2>
+      <div class="meal-list">
+        {% for meal in todays_meals %}
+          <article class="meal-entry">
+            <img src="{{ meal.image }}" alt="{{ meal.name }}" class="meal-entry__image">
+            <div class="meal-entry__content">
+              <header class="meal-entry__header">
+                <h3>{{ meal.name }}</h3>
+                <span class="{{ meal.badge_class }}">{{ meal.type_label }}</span>
+                {% if meal.ai_generated %}
+                  <span class="meal-badge meal-badge--ai">
+                    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    AI
+                  </span>
+                {% endif %}
+              </header>
+              <div class="meal-entry__stats">
+                <div><span class="meal-entry__stat-value">{{ meal.calories }}</span><span class="meal-entry__stat-label"> cal</span></div>
+                <div><span class="meal-entry__stat-value">{{ meal.protein }}g</span><span class="meal-entry__stat-label"> protein</span></div>
+                <div><span class="meal-entry__stat-value">{{ meal.carbs }}g</span><span class="meal-entry__stat-label"> carbs</span></div>
+                <div><span class="meal-entry__stat-value">{{ meal.fat }}g</span><span class="meal-entry__stat-label"> fat</span></div>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="meals-card">
+      <h2 class="meals-card__title">
+        <span class="meals-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M13 2 3 14h7l-1 8 10-12h-7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        AI Recommendations
+      </h2>
+      <div class="ai-recommendations">
+        {% for rec in ai_recommendations %}
+          {% if rec.title %}
+            <div class="ai-recommendation-card">
+              <h3>{{ rec.title }}</h3>
+              <p>{{ rec.message }}</p>
+              {% if rec.button %}
+                <button type="button" class="ai-recommendation-card__button">{{ rec.button }}</button>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="ai-feedback-card ai-feedback-card--{{ rec.type }}">
+              <span class="ai-feedback-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M12 2a7 7 0 0 0-4 12.74V18a2 2 0 0 0 2 2h4v-1.5h-3v-1.88A7 7 0 0 0 12 2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </span>
+              <p>{{ rec.message }}</p>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <button type="button" class="floating-action-button meals-fab" aria-label="Add meal">
+    <svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14m-7-7h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+
+  <nav class="meals-bottom-nav" aria-label="Quick navigation">
+    <a href="{% url 'tasks_dashboard' %}" class="meals-bottom-nav__item">
+      <span aria-hidden="true">🏠</span>
+      <span>Dashboard</span>
+    </a>
+    <a href="{% url 'tasks_workouts' %}" class="meals-bottom-nav__item">
+      <span aria-hidden="true">💪</span>
+      <span>Workouts</span>
+    </a>
+    <a href="{% url 'tasks_meals' %}" class="meals-bottom-nav__item is-active">
+      <span aria-hidden="true">🥗</span>
+      <span>Meals</span>
+    </a>
+    <a href="#" class="meals-bottom-nav__item">
+      <span aria-hidden="true">⚙️</span>
+      <span>Settings</span>
+    </a>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script src="{% static 'js/meals.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}AI 대시보드{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+{% endblock %}
+{% block content %}
+<div class="dashboard-shell">
+  <aside class="dashboard-glow" aria-hidden="true"></aside>
+
+  <header class="dashboard-header">
+    <div class="dashboard-header__text">
+      <h1>Dashboard</h1>
+      <p>AI 코칭과 함께 오늘의 목표를 확인하세요.</p>
+    </div>
+    <div class="dashboard-header__actions">
+      <a class="btn btn--ghost" href="/users/profile/">프로필</a>
+      <a class="btn btn--primary" href="#insights">AI Insights</a>
+    </div>
+  </header>
+
+  <div class="dashboard-divider"></div>
+
+  <main class="dashboard-layout">
+    <section class="dashboard-column">
+      <article class="dashboard-card dashboard-card--stat" id="progress" data-progress-total="{{ progress_total }}" data-progress-complete="{{ progress_done }}">
+        <div class="progress-panel__header">
+          <div>
+            <h2>Today's Progress</h2>
+            <p class="progress-panel__sub">{{ summary.total_minutes }} min of training · {{ summary.active_plans }} active plans</p>
+          </div>
+          <div class="progress-panel__complete">
+            <span class="progress-panel__percent" id="progressPercent">{{ progress_complete }}%</span>
+            <span class="progress-panel__caption">Complete</span>
+          </div>
+        </div>
+        <div class="progress-ring-row" id="progressRings">
+          {% for item in progress_cards %}
+          <div class="progress-ring-wrap progress-ring-wrap--{{ item.color }}">
+            {% include "partials/progress_ring.html" with wrapper_class="progress-ring--mini" progress=item.render_percent value=item.render_value label=item.label color=item.color %}
+            </div>
+          {% endfor %}
+        </div>
+        <div class="progress-goal">
+          <div class="progress-goal__bar"><span id="progressGoalFill" style="width: 0%"></span></div>
+          <p class="progress-goal__text"><span id="progressGoalCount">{{ progress_done }}</span> of {{ progress_total }} daily goals completed</p>
+        </div>
+      </article>
+
+      <article class="dashboard-card" id="tasks">
+        <div class="dashboard-card__heading">
+          <div>
+            <h2>Daily Tasks</h2>
+            <p class="dashboard-card__sub">오늘 목표 {{ daily_tasks|length }}개</p>
+          </div>
+        </div>
+        <ul class="task-list" id="dailyTasks">
+          {% for task in daily_tasks %}
+            <li class="task-list__item{% if task.completed %} is-complete{% endif %}" data-task-type="{{ task.type }}" data-completed="{{ task.completed|yesno:'true,false' }}">
+              <label class="task-list__toggle" data-task-toggle>
+                <input
+                  type="checkbox"
+                  class="task-checkbox__input"
+                  data-task-checkbox
+                  {% if task.completed %}checked{% endif %}
+                >
+                <span
+                  class="task-checkbox task-checkbox--{{ task.type }}"
+                  data-state="{% if task.completed %}checked{% else %}unchecked{% endif %}"
+                  aria-hidden="true"
+                >
+                  <svg class="task-checkbox__icon" viewBox="0 0 24 24" focusable="false">
+                    <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" />
+                  </svg>
+                </span>
+                <span class="task-list__text{% if task.completed %} is-complete{% endif %}">{{ task.text }}</span>
+              </label>
+            </li>
+          {% endfor %}
+        </ul>
+      </article>
+
+      <article class="dashboard-card" id="recommend">
+        <div class="dashboard-card__heading">
+          <div>
+            <h2>Today's Recommendations</h2>
+            <p class="dashboard-card__sub">Tailored picks for you</p>
+          </div>
+        </div>
+        <ul class="recommend-list">
+          {% for task in recommendations %}
+            <li class="recommend-list__item">
+              <div>
+                <strong>{{ task.exercise.name }}</strong>
+                <span class="muted"> · {{ task.duration_min }} min</span>
+              </div>
+              <span class="pill">Priority {{ forloop.counter }}</span>
+            </li>
+          {% empty %}
+            <li class="muted">No recommended workouts yet. Update your goals to get suggestions.</li>
+          {% endfor %}
+        </ul>
+      </article>
+    </section>
+
+    <section class="dashboard-column">
+      <article class="dashboard-card" id="insights">
+        <div class="dashboard-card__heading">
+          <div>
+            <h2>AI Insights</h2>
+            <p class="dashboard-card__sub">Updated daily</p>
+          </div>
+          <span class="badge">Today</span>
+        </div>
+        <div class="insight-stack">
+          {% if ai_loading %}{% include "partials/ai_thinking_dots.html" %}{% endif %}
+          {% for insight in ai_insights %}
+            <div class="insight insight--{{ insight.type }}">
+              <div class="insight__header">
+                <h3>{{ insight.title }}</h3>
+                <span class="muted">Confidence {{ insight.confidence }}%</span>
+              </div>
+              <p>{{ insight.message }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="premium-card quick-actions-card">
+        <div class="quick-actions__header">
+          <h3>Quick Actions</h3>
+          <p>Jump right into today's tasks</p>
+        </div>
+        <div class="quick-actions__grid">
+          {% for action in quick_actions %}
+            <a href="{{ action.url }}" class="quick-action quick-action--{{ action.variant }}" data-quick-action>
+              <span class="quick-action__icon" aria-hidden="true">
+                {% if action.icon == 'zap' %}
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="M13 2 3 14h7l-1 8 10-12h-7Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                {% elif action.icon == 'camera' %}
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm-9 9V8a3 3 0 0 1 3-3h2.2a1 1 0 0 0 .83-.44l.94-1.41A1.5 1.5 0 0 1 11.18 2h1.64a1.5 1.5 0 0 1 1.21.65l.94 1.41a1 1 0 0 0 .83.44H18a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                {% elif action.icon == 'trend' %}
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="m3 17 6-6 4 4 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                {% else %}
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="M12 21a9 9 0 1 0-9-9 9 9 0 0 0 9 9Zm0-5a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0-4h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                {% endif %}
+              </span>
+              <span class="quick-action__content">
+                <span class="quick-action__title">{{ action.title }}</span>
+                <span class="quick-action__caption">{{ action.caption }}</span>
+              </span>
+            </a>
+          {% endfor %}
+        </div>
+      </article>
+
+      <article class="dashboard-card">
+        <div class="dashboard-card__heading">
+          <div>
+            <h2>Nutrition Upload</h2>
+            <p class="dashboard-card__sub">Keep your meals tracked with AI</p>
+          </div>
+        </div>
+        {% include "partials/meal_upload.html" %}
+      </article>
+    </section>
+  </main>
+
+  <a class="floating-button" href="#" aria-label="빠른 추가">＋</a>
+</div>
+{% endblock %}
+{% block extra_js %}
+  {{ block.super }}
+  <script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}
