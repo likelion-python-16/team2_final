@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Sign Up{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+{% endblock %}
+{% block content %}
+<div class="auth-shell">
+  <div class="auth-grid">
+    <section class="auth-panel">
+      <div class="auth-form">
+        <div class="auth-logo">H</div>
+        <header class="auth-header">
+          <h1>Create your account</h1>
+          <p>Start your personalized health journey</p>
+        </header>
+
+        <div class="auth-oauth">
+          <a class="oauth-button oauth-button--kakao" href="#" aria-label="카카오 로그인">
+            <span class="oauth-button__icon oauth-button__icon--kakao" aria-hidden="true">K</span>
+            <span>Continue with Kakao</span>
+          </a>
+          <a class="oauth-button oauth-button--naver" href="#" aria-label="네이버 로그인">
+            <span class="oauth-button__icon" aria-hidden="true">
+              <img src="{% static 'img/naver.svg' %}" alt="" />
+            </span>
+            <span>Continue with Naver</span>
+          </a>
+        </div>
+
+        <div class="auth-divider"><span>or</span></div>
+
+        <form method="post" class="auth-fields" novalidate>
+          {% csrf_token %}
+          {% for field in form %}
+            <label class="auth-field" for="{{ field.id_for_label }}">
+              <span>{{ field.label }}</span>
+              {{ field }}
+              {% if field.errors %}
+                <small class="auth-error-text">{{ field.errors.0 }}</small>
+              {% endif %}
+            </label>
+          {% endfor %}
+
+          {% if form.non_field_errors %}
+            <div class="auth-error">
+              {% for error in form.non_field_errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <button type="submit" class="auth-submit">Sign up</button>
+        </form>
+
+        <p class="auth-footer">Already have an account? <a href="{% url 'login' %}" class="auth-link">Sign in</a></p>
+      </div>
+    </section>
+
+    <aside class="auth-side">
+      <div class="auth-side__quote">
+        <blockquote>
+          <p>Track workouts, meals, and progress with AI guidance tailored to you.</p>
+        </blockquote>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endblock %}

@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .views import UserViewSet, setup_view, profile_view
+from .views import UserViewSet, setup_view, profile_view, signup_view
 
 router = DefaultRouter()
 # 사용자 CRUD + me/deactivate/reactivate 액션
@@ -13,6 +13,7 @@ urlpatterns = [
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
 
     # Setup page
+    path("signup/", signup_view, name="user_signup"),
     path("setup/", setup_view, name="user_setup"),
     path("profile/", profile_view, name="user_profile"),
 

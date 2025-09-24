@@ -181,43 +181,168 @@
   });
 
   const taskList = document.getElementById('dailyTasks');
+  const taskAddButton = document.querySelector('[data-task-add]');
+  const taskCountLabel = document.querySelector('[data-task-count]');
   const progressCard = document.getElementById('progress');
   const percentLabel = document.getElementById('progressPercent');
   const goalFill = document.getElementById('progressGoalFill');
+  const goalLabel = document.getElementById('progressGoalLabel');
   const goalCount = document.getElementById('progressGoalCount');
+  const goalTotal = document.getElementById('progressGoalTotal');
 
   function updateDailyGoalProgress() {
     if (!taskList) return;
-    const items = taskList.querySelectorAll('.task-list__item');
+    const items = taskList.querySelectorAll('.task-card__item:not(.task-card__item--editing)');
     const total = items.length;
     const completed = Array.from(items).filter((item) => item.classList.contains('is-complete')).length;
     const percent = total ? Math.round((completed / total) * 100) : 0;
 
     if (percentLabel) percentLabel.textContent = `${percent}%`;
     if (goalFill) goalFill.style.width = `${percent}%`;
-    if (goalCount) goalCount.textContent = completed;
+    if (goalCount) goalCount.textContent = String(completed);
+    if (goalTotal) goalTotal.textContent = String(total);
+    if (goalLabel) {
+      goalLabel.setAttribute('data-completed', String(completed));
+      goalLabel.setAttribute('data-total', String(total));
+    }
     if (progressCard) {
       progressCard.dataset.progressTotal = String(total);
       progressCard.dataset.progressComplete = String(completed);
     }
+    if (taskCountLabel) taskCountLabel.textContent = `오늘 목표 ${total}개`;
+  }
+
+  function handleTaskToggle(event) {
+    const checkbox = event.target.closest && event.target.closest('[data-task-checkbox]');
+    if (!checkbox) return;
+    const item = checkbox.closest('.task-card__item');
+    if (!item) return;
+    const text = item.querySelector('.task-card__text');
+    const indicator = item.querySelector('.task-card__checkbox');
+    const isComplete = checkbox.checked;
+    item.classList.toggle('is-complete', isComplete);
+    item.dataset.completed = isComplete ? 'true' : 'false';
+    if (text) text.classList.toggle('is-complete', isComplete);
+    if (indicator) indicator.dataset.state = isComplete ? 'checked' : 'unchecked';
+    updateDailyGoalProgress();
   }
 
   if (taskList) {
-    taskList.addEventListener('change', (event) => {
-      const checkbox = event.target.closest('[data-task-checkbox]');
-      if (!checkbox) return;
-      const item = checkbox.closest('.task-list__item');
-      if (!item) return;
-      const text = item.querySelector('.task-list__text');
-      const indicator = item.querySelector('.task-checkbox');
-      const isComplete = checkbox.checked;
-      item.classList.toggle('is-complete', isComplete);
-      item.dataset.completed = isComplete ? 'true' : 'false';
-      if (text) text.classList.toggle('is-complete', isComplete);
-      if (indicator) indicator.dataset.state = isComplete ? 'checked' : 'unchecked';
+    taskList.addEventListener('change', handleTaskToggle);
+    const observer = new MutationObserver(() => {
       updateDailyGoalProgress();
     });
-
+    observer.observe(taskList, { childList: true });
     updateDailyGoalProgress();
+  }
+
+  function createTaskElement(text) {
+    const li = document.createElement('li');
+    li.className = 'task-card__item';
+    li.dataset.taskType = 'custom';
+    li.dataset.completed = 'false';
+
+    li.innerHTML = `
+      <label class="task-card__toggle">
+        <input type="checkbox" class="task-card__input" data-task-checkbox>
+        <span class="task-card__checkbox" data-state="unchecked" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"></path>
+          </svg>
+        </span>
+        <span class="task-card__text">${text}</span>
+        <span class="task-card__dot task-card__dot--custom" aria-hidden="true"></span>
+      </label>
+    `;
+
+    return li;
+  }
+
+  function insertTaskEditor() {
+    if (!taskList) return;
+    const existingEditor = taskList.querySelector('.task-card__item--editing');
+    if (existingEditor) {
+      const existingInput = existingEditor.querySelector('.task-card__input-field');
+      if (existingInput) existingInput.focus();
+      return;
+    }
+
+    const li = document.createElement('li');
+    li.className = 'task-card__item task-card__item--editing';
+    li.innerHTML = `
+      <div class="task-card__editor">
+        <input type="text" class="task-card__input-field" placeholder="할 일을 입력하세요" maxlength="120" />
+        <button type="button" class="task-card__confirm">추가</button>
+        <button type="button" class="task-card__cancel" aria-label="취소">취소</button>
+      </div>
+    `;
+
+    taskList.appendChild(li);
+
+    const input = li.querySelector('.task-card__input-field');
+    const confirmBtn = li.querySelector('.task-card__confirm');
+    const cancelBtn = li.querySelector('.task-card__cancel');
+
+    if (input) input.focus();
+
+    const removeEditor = () => {
+      if (li.isConnected) li.remove();
+      updateDailyGoalProgress();
+    };
+
+    const commitEditor = () => {
+      if (!input) return;
+      const value = input.value.trim();
+      if (!value) {
+        removeEditor();
+        return;
+      }
+      const newTask = createTaskElement(value);
+      li.replaceWith(newTask);
+      updateDailyGoalProgress();
+    };
+
+    if (input) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          commitEditor();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          removeEditor();
+        }
+      });
+
+      input.addEventListener('blur', () => {
+        window.setTimeout(() => {
+          if (!document.contains(li)) return;
+          const active = document.activeElement;
+          if (active === confirmBtn || active === cancelBtn || active === input) return;
+          if (!input.value.trim()) {
+            removeEditor();
+          }
+        }, 120);
+      });
+    }
+
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        commitEditor();
+      });
+    }
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        removeEditor();
+      });
+    }
+  }
+
+  if (taskAddButton && taskList) {
+    taskAddButton.addEventListener('click', () => {
+      insertTaskEditor();
+    });
   }
 })();

@@ -18,11 +18,13 @@
 
         <div class="auth-oauth">
           <a class="oauth-button oauth-button--kakao" href="#" aria-label="카카오 로그인">
-            <span class="oauth-button__icon oauth-button__icon--kakao" aria-hidden="true"></span>
+            <span class="oauth-button__icon oauth-button__icon--kakao" aria-hidden="true">K</span>
             <span>Continue with Kakao</span>
           </a>
           <a class="oauth-button oauth-button--naver" href="#" aria-label="네이버 로그인">
-            <span class="oauth-button__icon oauth-button__icon--naver" aria-hidden="true"></span>
+            <span class="oauth-button__icon" aria-hidden="true">
+              <img src="{% static 'img/naver.svg' %}" alt="" />
+            </span>
             <span>Continue with Naver</span>
           </a>
         </div>
@@ -81,24 +83,15 @@
           <button type="submit" class="auth-submit">Sign in</button>
         </form>
 
-        <p class="auth-footer">Don't have an account? <a href="#" class="auth-link">Sign up</a></p>
+        <p class="auth-footer">Don't have an account? <a href="{% url 'user_signup' %}" class="auth-link">Sign up</a></p>
       </div>
     </section>
 
     <aside class="auth-side">
       <div class="auth-side__quote">
-        <p class="quote-mark">“</p>
         <blockquote>
           <p>Getting AI, auth, and data in one place simplified our workflow.</p>
-          <footer>
-            <span>Sarah Chen</span>
-            <span>@sarahchen</span>
-          </footer>
         </blockquote>
-        <div class="auth-side__actions">
-          <button class="theme-toggle" type="button">🌙</button>
-          <a href="#" class="auth-link auth-link--docs">Documentation</a>
-        </div>
       </div>
     </aside>
   </div>

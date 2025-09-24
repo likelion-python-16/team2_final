@@ -8,15 +8,20 @@
 {% block content %}
 <div class="workouts-shell">
   <header class="workouts-header">
-    <div>
+    <div class="workouts-header__title">
       <h1>Your Workout Plan</h1>
       <p>AI-generated weekly sequence based on your goals</p>
     </div>
-    <a class="health-button-secondary" href="#">Generate New Plan</a>
   </header>
 
   <section class="workouts-week">
-    <h2><span class="workouts-icon">📅</span>This Week</h2>
+    <div class="workouts-week__header">
+      <h2>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3m10-3v3M4 8h16M5 5h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      This Week
+    </h2>
+      <a class="health-button-secondary" href="#">Generate New Plan</a>
+    </div>
     <div class="workouts-week__days">
       {% for day in week_days %}
         <button type="button" class="workouts-week__day{% if forloop.first %} is-active{% endif %}">
@@ -40,7 +45,10 @@
             </div>
           </div>
           {% if workout.completed %}
-            <span class="workout-status workout-status--done">Completed</span>
+            <span class="workout-status workout-status--done">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12 10 17 19 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Completed
+            </span>
           {% else %}
             <a class="workout-start" href="#"><span>▶</span>Start Workout</a>
           {% endif %}
@@ -70,4 +78,5 @@
 {% endblock %}
 {% block extra_js %}
   {{ block.super }}
+  <script src="{% static 'js/workouts.js' %}"></script>
 {% endblock %}

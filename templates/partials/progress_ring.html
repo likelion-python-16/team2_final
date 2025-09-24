@@ -1,8 +1,17 @@
-<div class="progress-ring {{ wrapper_class }}" data-progress="{{ progress|default:0 }}" data-color="{{ color|default:'primary' }}">
-  <svg viewBox="0 0 120 120" aria-hidden="true">
-    <circle class="progress-ring__bg" cx="60" cy="60" r="54"></circle>
-    <circle class="progress-ring__value-circle" cx="60" cy="60" r="54"></circle>
-  </svg>
-  <div class="progress-ring__value-text">{{ value }}</div>
+<div class="hover-card" data-hover-card>
+  <div class="hover-card__trigger" data-hover-card-trigger tabindex="0">
+    <div class="progress-ring {{ wrapper_class }}" data-progress="{{ progress|default:0 }}" data-color="{{ color|default:'primary' }}" data-value="{{ value }}">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="progress-ring__bg" cx="60" cy="60" r="54"></circle>
+        <circle class="progress-ring__value-circle" cx="60" cy="60" r="54"></circle>
+      </svg>
+      <div class="progress-ring__value-text">{{ value }}</div>
+    </div>
+  </div>
+  <div class="hover-card__content" data-hover-card-content role="status">
+    <p class="hover-card__title">{{ label }}</p>
+    <p class="hover-card__metric">{{ value }}</p>
+    <p class="hover-card__meta">{{ progress|default:0 }}% complete</p>
+  </div>
 </div>
 <p class="progress-ring__caption">{{ label }}</p>

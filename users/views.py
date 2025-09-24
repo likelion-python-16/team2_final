@@ -2,14 +2,16 @@ from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import AuthenticationForm
 from django.db import transaction
 from django.shortcuts import redirect, render
 from rest_framework import decorators, permissions, status, viewsets
 from rest_framework.response import Response
 
 from goals.models import Goal
-from .forms import SetupForm
+from .forms import SetupForm, SignUpForm
 from .models import UserProfile
 from .serializers import UserSerializer
 
@@ -132,6 +134,22 @@ class UserViewSet(viewsets.ModelViewSet):
         user.is_active = True
         user.save(update_fields=["is_active"])
         return Response({"detail": "계정이 재활성화되었습니다.", "is_active": user.is_active})
+
+
+def signup_view(request):
+    if request.user.is_authenticated:
+        return redirect("tasks_dashboard")
+
+    if request.method == "POST":
+        form = SignUpForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            messages.success(request, "Account created. Please sign in.")
+            return redirect("login")
+    else:
+        form = SignUpForm()
+
+    return render(request, "users/signup.html", {"form": form})
 
 
 @login_required

@@ -1,59 +1,214 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}홈{% endblock %}
-{% block extra_head %}
-  {{ block.super }}
-  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
-{% endblock %}
+{% block extra_css %}{% endblock %}
 {% block content %}
-<section class="hero-container">
-  <div class="hero-mesh-bg"></div>
-
-  <div class="hero-floating hero-floating--one"></div>
-  <div class="hero-floating hero-floating--two"></div>
-  <div class="hero-floating hero-floating--three"></div>
-
-  <div class="hero-content">
-    <div class="hero-pill" data-animate="zoom">
-      <div class="hero-pill__icon">
-        <span class="hero-pill__spark">☀️</span>
+<main class="landing" data-landing>
+  <section class="landing-hero" data-animate>
+    <div class="landing-hero__background"></div>
+    <div class="landing-hero__inner">
+      <div class="landing-hero__badge" data-animate data-animate-from="left">AI-Powered Wellness</div>
+      <h1 class="landing-hero__title" data-animate data-animate-from="left">
+        AI plans your <span>workouts</span> and <span>nutrition</span> for you
+      </h1>
+      <p class="landing-hero__subtitle" data-animate data-animate-from="left">
+        Build healthy routines with personalized training, adaptive meal plans, and smart progress tracking—all in one place.
+      </p>
+      <div class="landing-hero__actions" data-animate data-animate-from="bottom">
+        <a href="{% url 'user_signup' %}" class="landing-cta landing-cta--primary">Get Started Free</a>
+        <a href="{% url 'tasks_dashboard' %}" class="landing-cta landing-cta--ghost">Explore the Dashboard</a>
       </div>
-      <span class="hero-pill__label">AI-Powered Health Platform</span>
-    </div>
-
-    <h1 class="hero-title" data-animate="slide-up">
-      <span class="hero-title__word" data-words='["Smarter Training.", "Smarter Eating.", "Better Results."]'>Smarter Training.</span>
-    </h1>
-
-    <p class="hero-subtitle" data-animate="fade-up">
-      Transform your fitness journey with personalized AI coaching that adapts to your goals,
-      analyzes your nutrition, and optimizes your training for maximum results.
-    </p>
-
-    <div class="hero-actions" data-animate="fade-up">
-      <a href="/tasks/dashboard/" class="hero-cta">
-        <span class="hero-cta__icon">⚡</span>
-        <span>Start Your Journey</span>
-        <span class="hero-cta__arrow">➔</span>
-      </a>
-
-      <div class="hero-tags">
-        <div class="hero-tag"><span class="hero-tag__dot hero-tag__dot--green"></span>AI-Powered</div>
-        <div class="hero-tag"><span class="hero-tag__dot hero-tag__dot--blue"></span>Personalized</div>
-        <div class="hero-tag"><span class="hero-tag__dot hero-tag__dot--purple"></span>Data-Driven</div>
+      <div class="landing-hero__metrics" data-animate data-animate-from="bottom">
+        <div>
+          <strong data-count="98" data-suffix="%">98%</strong>
+          <span>see measurable progress</span>
+        </div>
+        <div>
+          <strong data-count="24" data-suffix="/7">24/7</strong>
+          <span>AI guidance & insights</span>
+        </div>
+        <div>
+          <strong data-count="50" data-suffix="K+">50K+</strong>
+          <span>healthy meals logged</span>
+        </div>
       </div>
     </div>
-  </div>
+    <div class="landing-hero__visual" data-animate data-animate-from="right">
+      <div class="landing-phone" data-phone-tilt>
+        <div class="landing-phone__frame">
+          <header class="landing-phone__header">
+            <span class="landing-phone__time">9:41</span>
+            <span class="landing-phone__signal"></span>
+          </header>
 
-  <div class="hero-scroll" data-animate="fade-in">
-    <span>Scroll to explore</span>
-    <div class="hero-scroll__frame">
-      <span class="hero-scroll__dot"></span>
+          <div class="landing-phone__section landing-phone__section--goal" data-animate-child>
+            <div class="landing-phone__icon">📸</div>
+            <div class="landing-phone__body">
+              <p class="landing-phone__title">Breakfast Logged</p>
+              <p class="landing-phone__meta">Calories</p>
+              <div class="landing-progress" data-progress="90">
+                <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
+                <span class="landing-progress__percent">90%</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="landing-phone__section" data-animate-child>
+            <div class="landing-phone__icon">🏋️‍♀️</div>
+            <div class="landing-phone__body">
+              <p class="landing-phone__title">Upper Body Strength</p>
+              <p class="landing-phone__meta">Progress</p>
+              <div class="landing-progress" data-progress="60">
+                <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
+                <span class="landing-progress__percent">60%</span>
+              </div>
+            </div>
+            <button type="button" class="landing-phone__cta">Continue Workout</button>
+          </div>
+
+          <div class="landing-phone__mini-grid" data-stagger>
+            <div class="landing-phone__mini" data-stagger-item>
+              <span class="landing-phone__mini-value">85%</span>
+              <span class="landing-phone__mini-caption">Workout match</span>
+            </div>
+            <div class="landing-phone__mini" data-stagger-item>
+              <span class="landing-phone__mini-value">92%</span>
+              <span class="landing-phone__mini-caption">Meal quality</span>
+            </div>
+            <div class="landing-phone__mini" data-stagger-item>
+              <span class="landing-phone__mini-value">78%</span>
+              <span class="landing-phone__mini-caption">Recovery</span>
+            </div>
+          </div>
+
+          <div class="landing-phone__insight" data-animate-child>
+            <div class="landing-phone__icon">🧠</div>
+            <p class="landing-phone__title">AI Insight</p>
+            <p class="landing-phone__meta">Great progress! Protein intake is on track. Consider adding more fiber.</p>
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
-</section>
+  </section>
+
+  <section id="features" class="landing-section">
+    <div class="landing-section__intro" data-animate>
+      <h2>Everything you need for a healthier you</h2>
+      <p>Our AI adapts to your progress so you can stay consistent with less guesswork.</p>
+    </div>
+    <div class="landing-feature-list">
+      <article class="landing-feature-card landing-feature-card--recommendations" data-animate>
+        <div class="landing-feature-card__content">
+          <div class="landing-feature-card__icon">🧠</div>
+          <h3>AI-Powered Recommendations</h3>
+          <p>Get personalized meal plans and workout routines that adapt to your progress, preferences, and lifestyle changes in real-time.</p>
+          <div class="landing-feature-tags">
+            <span>Smart</span>
+            <span>Adaptive</span>
+            <span>Personal</span>
+          </div>
+        </div>
+        <div class="landing-feature-card__panel">
+          <header>
+            <span class="landing-feature-card__panel-icon">🩺</span>
+            <span class="landing-feature-card__panel-title">Weekly Plan Generated</span>
+            <span class="landing-feature-card__panel-dot"></span>
+          </header>
+          <div class="landing-feature-card__chips" data-stagger>
+            <div class="landing-feature-card__chip" data-stagger-item>
+              <span class="landing-feature-card__chip-value">85%</span>
+              <span class="landing-feature-card__chip-label">Match</span>
+            </div>
+            <div class="landing-feature-card__chip" data-stagger-item>
+              <span class="landing-feature-card__chip-value">92%</span>
+              <span class="landing-feature-card__chip-label">Match</span>
+            </div>
+            <div class="landing-feature-card__chip" data-stagger-item>
+              <span class="landing-feature-card__chip-value">78%</span>
+              <span class="landing-feature-card__chip-label">Match</span>
+            </div>
+          </div>
+        </div>
+      </article>
+      <article class="landing-feature-card landing-feature-card--photo" data-animate>
+        <div class="landing-photo-card" data-animate-child>
+          <div class="landing-photo-card__icon">📸</div>
+          <p class="landing-photo-card__value">450 calories</p>
+          <p class="landing-photo-card__meta">detected in 0.3 seconds</p>
+          <div class="landing-photo-card__dots"><span></span><span></span><span></span></div>
+        </div>
+        <div class="landing-photo-details" data-animate-child>
+          <div class="landing-photo-details__header">
+            <span class="landing-photo-card__icon landing-photo-card__icon--small">📸</span>
+            <div>
+              <h3>Photo-Based Tracking</h3>
+              <p>Simply snap a photo of your meal and get instant calorie counts, macronutrient breakdowns, and nutritional insights powered by advanced AI.</p>
+            </div>
+          </div>
+          <div class="landing-progress" data-progress="95">
+            <div class="landing-progress__label">
+              <span>Accuracy</span>
+              <span class="landing-progress__percent">95%</span>
+            </div>
+            <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
+          </div>
+          <div class="landing-progress" data-progress="98">
+            <div class="landing-progress__label">
+              <span>Speed</span>
+              <span class="landing-progress__percent">98%</span>
+            </div>
+            <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
+          </div>
+          <div class="landing-progress" data-progress="92">
+            <div class="landing-progress__label">
+              <span>Recognition</span>
+              <span class="landing-progress__percent">92%</span>
+            </div>
+            <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
+          </div>
+        </div>
+      </article>
+      <article class="landing-feature-card landing-feature-card--workouts" data-animate>
+        <div class="landing-workouts-card" data-animate-child>
+          <div class="landing-workouts-card__icon">🏋️‍♂️</div>
+          <h3>Weekly Workout Sequences</h3>
+          <p>Receive customized weekly workout plans that evolve with your fitness level and keep you motivated to reach your goals.</p>
+          <div class="landing-workouts-tags">
+            <span>Goal-focused</span>
+            <span>Progressive</span>
+            <span>Personalized</span>
+            <span>Adaptive</span>
+          </div>
+        </div>
+        <div class="landing-workouts-panel" data-animate-child>
+          <header>This Week’s Plan</header>
+          <ul>
+            <li><span>Mon: Upper Body</span><span class="dot"></span></li>
+            <li><span>Tue: Cardio</span><span class="dot"></span></li>
+            <li><span>Wed: Core</span><span class="dot"></span></li>
+            <li><span>Thu: Lower Body</span><span class="dot"></span></li>
+          </ul>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="testimonials" class="landing-section landing-section--anchor" aria-hidden="true"></section>
+
+  <section class="landing-section landing-section--cta" data-animate>
+    <div class="landing-section__intro" data-animate>
+      <h2>Ready to transform your health journey?</h2>
+      <p>Join thousands of people who train smarter with AI-powered planning.</p>
+    </div>
+    <form class="landing-newsletter" method="get" action="{% url 'user_signup' %}" data-animate>
+      <input type="email" name="email" placeholder="Enter your email" required>
+      <button type="submit">Get Started</button>
+    </form>
+    <p class="landing-notice" data-animate>Free to try · No credit card required · Cancel anytime</p>
+  </section>
+</main>
 {% endblock %}
-{% block extra_script %}
+{% block extra_js %}
   {{ block.super }}
   <script src="{% static 'js/landing.js' %}"></script>
 {% endblock %}

@@ -1,4 +1,7 @@
 from django import forms
+from django.contrib.auth.forms import UserCreationForm
+
+from .models import CustomUser
 
 
 class SetupForm(forms.Form):
@@ -22,3 +25,18 @@ class SetupForm(forms.Form):
     height = forms.IntegerField(label="Height (cm)", min_value=130, max_value=230)
     goal = forms.ChoiceField(label="Fitness Goal", choices=GOAL_CHOICES, initial="maintain")
     activity_level = forms.ChoiceField(label="Activity Level", choices=ACTIVITY_CHOICES, initial="moderate")
+
+
+class SignUpForm(UserCreationForm):
+    class Meta:
+        model = CustomUser
+        fields = ("username", "email", "nickname")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        field_order = ["username", "nickname", "email", "password1", "password2"]
+        for name in self.fields:
+            field = self.fields[name]
+            field.widget.attrs.setdefault("class", "auth-input")
+            field.help_text = ""
+        self.order_fields(field_order)
