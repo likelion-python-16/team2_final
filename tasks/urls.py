@@ -11,10 +11,13 @@ from .views import (
 )
 
 router = DefaultRouter()
-router.register(r'api/exercises', ExerciseViewSet, basename='exercise')
-router.register(r'api/workoutplans', WorkoutPlanViewSet, basename='workoutplan')
-router.register(r'api/taskitems', TaskItemViewSet, basename='taskitem')
-router.register(r'api/workoutlogs', WorkoutLogViewSet, basename='workoutlog')
+router.register(r'exercises', ExerciseViewSet, basename='exercise')
+router.register(r'workoutplans', WorkoutPlanViewSet, basename='workoutplan')
+router.register(r'taskitems', TaskItemViewSet, basename='taskitem')
+router.register(r'workoutlogs', WorkoutLogViewSet, basename='workoutlog')
+
+# ✅ 테스트 호환용 alias: /api/tasks/ → TaskItemViewSet에 매핑
+router.register(r'tasks',        TaskItemViewSet,    basename='tasks')
 
 urlpatterns = [
     path("", include(router.urls)),

@@ -48,8 +48,9 @@ INSTALLED_APPS = [
     'users',
     'tasks',
     'goals', 
-    'intake',
-    'feedbacks',    
+    'intakes',
+    'feedbacks',   
+    'utils', 
 ]
 
 # DRF 설정
@@ -68,6 +69,7 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',  # 개발 편의용
     ],
+    "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
 }
 
 # JWT 설정
@@ -161,11 +163,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+<<<<<<< HEAD
 STATICFILES_DIRS = [
-    BASE_DIR / 'team2_final' / 'static',
     BASE_DIR / 'static',
+    BASE_DIR / 'team2_final' / 'static',
 ]
-
+STATIC_ROOT = BASE_DIR / "staticfiles"
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

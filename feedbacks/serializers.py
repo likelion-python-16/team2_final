@@ -3,6 +3,7 @@ from .models import Feedback, DailyReport, Achievement
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(read_only=True)  # 🔁 자동주입
     class Meta:
         model = Feedback
         fields = "__all__"

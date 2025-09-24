@@ -5,12 +5,11 @@ from django.contrib import admin
 from django.http import FileResponse, JsonResponse
 from django.urls import include, path
 from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
+    TokenObtainPairView, TokenRefreshView, TokenVerifyView
 )
-
+from . import views
 from .views import landing
+from users.views import signup_view, setup_view, profile_view
 
 
 def root_healthcheck(_request):
@@ -34,15 +33,22 @@ def api_docs(_request):
 
 urlpatterns = [
     path("", landing, name="landing"),
+    path("example/", views.example_view, name="example"),
     path("accounts/", include("django.contrib.auth.urls")),
     path("docs", api_docs, name="api_docs"),
     path("admin/", admin.site.urls),
+
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
-    path("users/", include("users.urls")),
-    path("tasks/", include("tasks.urls")),
-    path("goals/", include("goals.urls")),
-    path("intake/", include("intake.urls")),
-    path("feedbacks/", include("feedbacks.urls")),
+
+    path("signup/", signup_view, name="user_signup"),
+    path("setup/", setup_view, name="user_setup"),
+    path("profile/", profile_view, name="user_profile"),
+
+    path("api/", include("users.urls")),
+    path("api/", include("goals.urls")),
+    path("api/", include("tasks.urls")),
+    path("api/", include("intakes.urls")),
+    path("api/", include("feedbacks.urls")),
 ]
