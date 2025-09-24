@@ -15,8 +15,10 @@
         Build healthy routines with personalized training, adaptive meal plans, and smart progress tracking—all in one place.
       </p>
       <div class="landing-hero__actions" data-animate data-animate-from="bottom">
-        <a href="{% url 'user_signup' %}" class="landing-cta landing-cta--primary">Get Started Free</a>
-        <a href="{% url 'tasks_dashboard' %}" class="landing-cta landing-cta--ghost">Explore the Dashboard</a>
+        <a href="{% url 'user_signup' %}" class="landing-cta landing-cta--primary landing-cta--pulse" data-arrow-trigger>
+          <span class="landing-cta__label">Get Started</span>
+          <span class="landing-cta__arrow" aria-hidden="true">→</span>
+        </a>
       </div>
       <div class="landing-hero__metrics" data-animate data-animate-from="bottom">
         <div>
@@ -36,6 +38,7 @@
     <div class="landing-hero__visual" data-animate data-animate-from="right">
       <div class="landing-phone" data-phone-tilt>
         <div class="landing-phone__frame">
+          <div class="landing-phone__screen-shine"></div>
           <header class="landing-phone__header">
             <span class="landing-phone__time">9:41</span>
             <span class="landing-phone__signal"></span>
@@ -93,7 +96,7 @@
 
   <section id="features" class="landing-section">
     <div class="landing-section__intro" data-animate>
-      <h2>Everything you need for a healthier you</h2>
+      <h2>Everything you need for a <span class="landing-highlight">healthier</span> you</h2>
       <p>Our AI adapts to your progress so you can stay consistent with less guesswork.</p>
     </div>
     <div class="landing-feature-list">
@@ -145,21 +148,21 @@
               <p>Simply snap a photo of your meal and get instant calorie counts, macronutrient breakdowns, and nutritional insights powered by advanced AI.</p>
             </div>
           </div>
-          <div class="landing-progress" data-progress="95">
+          <div class="landing-progress" data-progress="95" data-gradient="photo">
             <div class="landing-progress__label">
               <span>Accuracy</span>
               <span class="landing-progress__percent">95%</span>
             </div>
             <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
           </div>
-          <div class="landing-progress" data-progress="98">
+          <div class="landing-progress" data-progress="98" data-gradient="photo">
             <div class="landing-progress__label">
               <span>Speed</span>
               <span class="landing-progress__percent">98%</span>
             </div>
             <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
           </div>
-          <div class="landing-progress" data-progress="92">
+          <div class="landing-progress" data-progress="92" data-gradient="photo">
             <div class="landing-progress__label">
               <span>Recognition</span>
               <span class="landing-progress__percent">92%</span>
@@ -180,13 +183,13 @@
             <span>Adaptive</span>
           </div>
         </div>
-        <div class="landing-workouts-panel" data-animate-child>
+        <div class="landing-workouts-panel" data-animate-child data-stagger>
           <header>This Week’s Plan</header>
           <ul>
-            <li><span>Mon: Upper Body</span><span class="dot"></span></li>
-            <li><span>Tue: Cardio</span><span class="dot"></span></li>
-            <li><span>Wed: Core</span><span class="dot"></span></li>
-            <li><span>Thu: Lower Body</span><span class="dot"></span></li>
+            <li data-stagger-item><span>Mon: Upper Body</span><span class="dot"></span></li>
+            <li data-stagger-item><span>Tue: Cardio</span><span class="dot"></span></li>
+            <li data-stagger-item><span>Wed: Core</span><span class="dot"></span></li>
+            <li data-stagger-item><span>Thu: Lower Body</span><span class="dot"></span></li>
           </ul>
         </div>
       </article>
@@ -197,12 +200,12 @@
 
   <section class="landing-section landing-section--cta" data-animate>
     <div class="landing-section__intro" data-animate>
-      <h2>Ready to transform your health journey?</h2>
+      <h2>Ready to transform your <span class="landing-highlight">health journey</span>?</h2>
       <p>Join thousands of people who train smarter with AI-powered planning.</p>
     </div>
     <form class="landing-newsletter" method="get" action="{% url 'user_signup' %}" data-animate>
       <input type="email" name="email" placeholder="Enter your email" required>
-      <button type="submit">Get Started</button>
+      <button type="submit" class="landing-newsletter__cta landing-cta--pulse">Get Started</button>
     </form>
     <p class="landing-notice" data-animate>Free to try · No credit card required · Cancel anytime</p>
   </section>
