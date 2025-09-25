@@ -1,0 +1,30 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>API 결과 예시</title>
+  <link rel="stylesheet" href="{% static 'css/example.css' %}">
+</head>
+<body>
+  <main class="container">
+    <h1>API 테스트 (브라우저에서 확인)</h1>
+
+    <section id="result-area" class="box success">
+      <pre id="result-pre">데이터가 여기에 표시됩니다.</pre>
+    </section>
+
+    <section id="error-area" class="box error" style="display:none;">
+      <p id="error-text">에러가 발생했습니다.</p>
+    </section>
+
+    <div class="controls">
+      <input id="endpoint" type="text" placeholder="/api/endpoint/" value="/users/api/users/me/">
+      <input id="token" type="text" placeholder="Bearer 토큰(선택)">
+      <button id="call-api">API 호출</button>
+    </div>
+  </main>
+
+  <script src="{% static 'js/example.js' %}"></script>
+</body>
+</html>

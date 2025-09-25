@@ -1,0 +1,74 @@
+{% load static %}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Healthcare{% endblock %}</title>
+
+  <!-- 폰트 & 전역 CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+
+  {% block extra_css %}{% endblock %}
+
+  <!-- 전역 CSRF/인증 유틸 -->
+  <script>
+    // ✅ CSRF 토큰 읽기
+    function getCookie(name) {
+      const v = `; ${document.cookie}`;
+      const p = v.split(`; ${name}=`);
+      if (p.length === 2) return p.pop().split(";").shift();
+    }
+    window.CSRF_TOKEN = getCookie("csrftoken");
+
+    // ✅ API base
+    window.API_BASE = "/api";
+    window.API = window.API_BASE || "/api";
+
+    // ✅ JWT access 토큰 가져오기
+    function getAccess() {
+      try {
+        return localStorage.getItem("access") || "";
+      } catch (e) {
+        return "";
+      }
+    }
+
+    // ✅ Authorization 헤더 자동 추가
+    function authHeaders(extra = {}) {
+      const h = {
+        "Content-Type": "application/json",
+        "X-CSRFToken": window.CSRF_TOKEN
+      };
+      const t = getAccess();
+      if (t) h["Authorization"] = `Bearer ${t}`;
+      return Object.assign(h, extra);
+    }
+  </script>
+</head>
+<body>
+  <!-- 헤더 -->
+  <header class="site-header">
+    <div class="container row between center">
+      {% include 'partials/navbar.html' %}
+    </div>
+  </header>
+
+  <!-- 메인 -->
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- 푸터 -->
+  <footer class="site-footer">
+    <div class="container row between top">
+      {% include 'partials/footer.html' %}
+    </div>
+  </footer>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

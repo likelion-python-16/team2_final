@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Setup Profile{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+{% endblock %}
+{% block extra_js %}
+  {{ block.super }}
+  <script src="{% static 'js/setup.js' %}"></script>
+{% endblock %}
+{% block content %}
+<div class="setup-shell">
+  <div class="setup-card">
+    <header class="setup-header">
+      <div class="setup-avatar">👤</div>
+      <h1>Welcome to HealthAI</h1>
+      <p>Let's personalize your health journey with AI-powered recommendations.</p>
+    </header>
+
+    <form method="post" class="setup-form" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="setup-messages">
+          {% for error in form.non_field_errors %}
+            <p class="setup-message setup-message--error">{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <section class="setup-section">
+        <header class="setup-section__header">
+          <span class="setup-section__icon">👤</span>
+          <h2>Personal Information</h2>
+        </header>
+        <div class="setup-grid">
+          <div class="setup-field">
+            <label for="id_name">Full Name</label>
+            <input type="text" name="name" id="id_name" value="{{ form.name.value|default_if_none:'' }}" class="health-input" placeholder="Enter your name" required>
+            {% if form.name.errors %}<small class="setup-message setup-message--error">{{ form.name.errors.0 }}</small>{% endif %}
+          </div>
+          <div class="setup-field">
+            <label for="id_age">Age</label>
+            <input type="number" name="age" id="id_age" value="{{ form.age.value|default_if_none:'' }}" class="health-input" placeholder="25" required>
+            {% if form.age.errors %}<small class="setup-message setup-message--error">{{ form.age.errors.0 }}</small>{% endif %}
+          </div>
+          <div class="setup-field">
+            <label for="id_weight">Weight (kg)</label>
+            <input type="number" step="0.1" name="weight" id="id_weight" value="{{ form.weight.value|default_if_none:'' }}" class="health-input" placeholder="70" required>
+            {% if form.weight.errors %}<small class="setup-message setup-message--error">{{ form.weight.errors.0 }}</small>{% endif %}
+          </div>
+          <div class="setup-field">
+            <label for="id_height">Height (cm)</label>
+            <input type="number" name="height" id="id_height" value="{{ form.height.value|default_if_none:'' }}" class="health-input" placeholder="175" required>
+            {% if form.height.errors %}<small class="setup-message setup-message--error">{{ form.height.errors.0 }}</small>{% endif %}
+          </div>
+        </div>
+      </section>
+
+      <section class="setup-section">
+        <header class="setup-section__header">
+          <span class="setup-section__icon">🎯</span>
+          <h2>Fitness Goal</h2>
+        </header>
+        <div class="setup-goals">
+          {% for option in goal_options %}
+            <label class="setup-goal">
+              <input type="radio" name="goal" value="{{ option.value }}" {% if form.goal.value == option.value %}checked{% endif %}>
+              <span class="setup-goal__pill">{{ option.label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+        {% if form.goal.errors %}<small class="setup-message setup-message--error">{{ form.goal.errors.0 }}</small>{% endif %}
+      </section>
+
+      <section class="setup-section">
+        <header class="setup-section__header">
+          <span class="setup-section__icon">⚡</span>
+          <h2>Activity Level</h2>
+        </header>
+        <div class="setup-activity">
+          {% for option in activity_options %}
+            <label class="setup-activity__item">
+              <input type="radio" name="activity_level" value="{{ option.value }}" {% if form.activity_level.value == option.value %}checked{% endif %}>
+              <div>
+                <span class="setup-activity__title">{{ option.label }}</span>
+                <span class="setup-activity__desc">{{ option.desc }}</span>
+              </div>
+            </label>
+          {% endfor %}
+        </div>
+        {% if form.activity_level.errors %}<small class="setup-message setup-message--error">{{ form.activity_level.errors.0 }}</small>{% endif %}
+      </section>
+
+      <button type="submit" class="health-button-primary">Start My Health Journey</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

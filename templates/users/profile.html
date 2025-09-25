@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}My Profile{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+{% endblock %}
+{% block extra_js %}
+  {{ block.super }}
+  <script src="{% static 'js/dashboard.js' %}"></script>
+{% endblock %}
+{% block content %}
+<div class="profile-shell">
+  <section class="profile-hero">
+    <div class="profile-hero__avatar">{{ avatar_initial }}</div>
+    <div>
+      <h1>{{ profile.user.nickname|default:profile.user.username }}</h1>
+      <p>Health journey started 2 weeks ago</p>
+    </div>
+  </section>
+
+  <section class="profile-metrics">
+    <h2 class="profile-metrics__title">
+      <span class="profile-metrics__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      Health Overview
+    </h2>
+    <div class="profile-metrics__row">
+      <div class="profile-metrics__item">
+        <span class="profile-metrics__value profile-metrics__value--weight">{{ profile.weight_kg|default:"-" }} <small>kg</small></span>
+        <span class="profile-metrics__label">Current Weight</span>
+      </div>
+      <div class="profile-metrics__item">
+        <span class="profile-metrics__value profile-metrics__value--height">{{ profile.height_cm|default:"-" }} <small>cm</small></span>
+        <span class="profile-metrics__label">Height</span>
+      </div>
+      <div class="profile-metrics__item">
+        <span class="profile-metrics__value profile-metrics__value--bmi">{{ bmi|floatformat:1 }}</span>
+        <span class="profile-metrics__label">BMI</span>
+      </div>
+      <div class="profile-metrics__item">
+        <span class="profile-metrics__value profile-metrics__value--age">{{ profile.age|default:"-" }}</span>
+        <span class="profile-metrics__label">Years Old</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="profile-goals-flat">
+    <h2 class="profile-metrics__title">
+      <span class="profile-metrics__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3v18m9-9H3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      Current Goals
+    </h2>
+    <div class="profile-goals-flat__row">
+      <div>
+        <span class="profile-goals-flat__label">Primary Goal</span>
+        <span class="profile-goals-flat__pill profile-goals-flat__pill--primary">{{ goal_label }}</span>
+      </div>
+      <div>
+        <span class="profile-goals-flat__label">Activity Level</span>
+        <span class="profile-goals-flat__pill profile-goals-flat__pill--activity">{{ activity_label }}</span>
+      </div>
+    </div>
+    <a class="health-button-secondary profile-goals-flat__action" href="{% url 'user_setup' %}">Update Goals</a>
+  </section>
+
+  <section class="profile-card">
+    <header class="profile-card__header">
+      <span class="profile-card__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="M3 17 9 11l4 4 7-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span>This Week's Progress</span>
+      <span class="profile-progress__percent profile-progress__percent-badge">{{ weekly_stats.goal_progress }}%</span>
+    </header>
+    <div class="profile-progress">
+      <div class="profile-progress__metric profile-progress__metric--ring">
+        {% include "partials/progress_ring.html" with wrapper_class="progress-ring--mini" progress=workout_percent value=workout_label label="Workouts" color="primary" %}
+        <small>this week</small>
+      </div>
+      <div class="profile-progress__metric profile-progress__metric--calories">
+        <strong>{{ weekly_stats.avg_calories }}</strong>
+        <span>Avg Calories</span>
+        <small>Daily Intake</small>
+      </div>
+      <div class="profile-progress__metric profile-progress__metric--streak">
+        <strong>{{ weekly_stats.streak_days }}</strong>
+        <span>Day Streak</span>
+        <small>Current</small>
+      </div>
+      <div class="profile-progress__metric profile-progress__metric--goal">
+        <strong>{{ weekly_stats.goal_progress }}%</strong>
+        <span>Goal Progress</span>
+        <small>This Month</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="profile-card">
+    <header class="profile-card__header">
+      <span class="profile-card__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" focusable="false"><path d="m12 2 2.39 4.85 5.35.78-3.87 3.77.91 5.3L12 14.9 6.22 16.7l.91-5.3-3.87-3.77 5.35-.78z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <span>Achievements</span>
+    </header>
+    <div class="profile-achievements">
+      {% for achievement in achievements %}
+        <article class="profile-achievement{% if achievement.earned %} is-earned{% else %} profile-achievement--muted{% endif %}">
+          <div class="profile-achievement__icon">{{ achievement.icon }}</div>
+          <div>
+            <h4>{{ achievement.name }}</h4>
+            <p>{{ achievement.desc }}</p>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="profile-card">
+    <header class="profile-card__header">
+      <span>Settings</span>
+    </header>
+    <ul class="profile-settings">
+      <li><a href="#">Notification Preferences</a></li>
+      <li><a href="#">Privacy Settings</a></li>
+      <li><a href="#">Data Export</a></li>
+    </ul>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+<div class="meal-analyzer premium-card" data-meal-analyzer data-meal-stage="upload">
+  <div class="meal-analyzer__inner" data-meal-panel>
+    <div class="meal-analyzer__face meal-analyzer__face--upload" data-meal-face="upload">
+      <div class="upload-area" data-meal-dropzone tabindex="0" role="button" aria-label="Upload meal photo">
+        <div class="upload-area__icon" data-meal-dropzone-icon>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 16v-8m0 0-3 3m3-3 3 3M6.5 19h11a2.5 2.5 0 0 0 0-5h-.3a4.8 4.8 0 0 0-9.4 0h-.3a2.5 2.5 0 0 0 0 5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+        <h3 class="upload-area__title">Upload Your Meal</h3>
+        <p class="upload-area__subtitle">Drag &amp; drop a photo or click to browse</p>
+        <div class="upload-area__meta">
+          <span class="upload-area__meta-item">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+            JPG, PNG
+          </span>
+          <span class="upload-area__dot" aria-hidden="true"></span>
+          <span class="upload-area__meta-item">Max 10MB</span>
+        </div>
+        <input type="file" accept="image/*" class="upload-area__input" data-meal-input hidden />
+      </div>
+    </div>
+
+    <div class="meal-analyzer__face meal-analyzer__face--analysis" data-meal-face="analysis">
+      <div class="meal-analyzer__analysis">
+        <div class="meal-analyzer__preview">
+          <img src="" alt="Uploaded meal" data-meal-preview />
+          <button type="button" class="meal-analyzer__reset" data-meal-reset aria-label="Reset upload">×</button>
+          <div class="meal-analyzer__overlay" data-meal-overlay hidden>
+            <div class="meal-analyzer__overlay-content">
+              {% include "partials/ai_thinking_dots.html" %}
+              <p>Analyzing your meal...</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="meal-analyzer__feedback" data-meal-feedback hidden>
+          <div class="meal-analyzer__feedback-header">
+            <div class="meal-analyzer__feedback-icon" data-meal-feedback-icon></div>
+            <h4>AI Analysis Complete</h4>
+          </div>
+          <div class="meal-analyzer__stats" aria-live="polite">
+            <div class="meal-analyzer__stat">
+              <span class="meal-analyzer__stat-value" data-meal-calories>0</span>
+              <span class="meal-analyzer__stat-label">Calories</span>
+            </div>
+            <div class="meal-analyzer__stat">
+              <span class="meal-analyzer__stat-value" data-meal-protein>0g</span>
+              <span class="meal-analyzer__stat-label">Protein</span>
+            </div>
+            <div class="meal-analyzer__stat">
+              <span class="meal-analyzer__stat-value" data-meal-carbs>0g</span>
+              <span class="meal-analyzer__stat-label">Carbs</span>
+            </div>
+            <div class="meal-analyzer__stat">
+              <span class="meal-analyzer__stat-value" data-meal-fat>0g</span>
+              <span class="meal-analyzer__stat-label">Fat</span>
+            </div>
+          </div>
+          <div class="meal-analyzer__insights">
+            <h5>Key Insights</h5>
+            <ul class="meal-analyzer__insight-list" data-meal-insights></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
