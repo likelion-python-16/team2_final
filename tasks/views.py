@@ -321,8 +321,8 @@ def dashboard(request):
             "ai_insights": ai_insights,
             "progress_cards": progress_cards,
             "quick_actions": [
-                {"icon": "zap", "title": "Start Workout", "caption": "Begin today's training", "url": reverse("tasks_workouts"), "variant": "primary"},
-                {"icon": "camera", "title": "Log Meal", "caption": "Take a photo", "url": reverse("tasks_meals"), "variant": "secondary"},
+                {"icon": "zap", "title": "Start Workout", "caption": "Begin today's training", "url": reverse("tasks:workouts"), "variant": "primary"},
+                {"icon": "camera", "title": "Log Meal", "caption": "Take a photo", "url": reverse("tasks:meals"), "variant": "secondary"},
                 {"icon": "trend", "title": "View Progress", "caption": "Check your stats", "url": "#progress", "variant": "coral"},
                 {"icon": "target", "title": "Set Goals", "caption": "Update targets", "url": "#goal", "variant": "purple"},
             ],

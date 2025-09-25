@@ -31,7 +31,7 @@
 
         <div class="auth-divider"><span>or</span></div>
 
-        <form method="post" class="auth-fields" novalidate>
+        <form method="post" action="{% url 'login' %}" class="auth-fields" novalidate>
           {% csrf_token %}
           {% if form.non_field_errors %}
             <div class="auth-error">
@@ -39,6 +39,9 @@
                 <p>{{ error }}</p>
               {% endfor %}
             </div>
+          {% endif %}
+          {% if next %}
+            <input type="hidden" name="next" value="{{ next }}">
           {% endif %}
 
           <label class="auth-field" for="id_username">
@@ -77,7 +80,7 @@
               <input type="checkbox" name="remember" />
               <span>Remember me</span>
             </label>
-            <a href="#" class="auth-link">Forgot password?</a>
+            <a href="{% url 'password_reset' %}" class="auth-link">Forgot password?</a>
           </div>
 
           <button type="submit" class="auth-submit">Sign in</button>

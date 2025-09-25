@@ -4,12 +4,14 @@ from django.conf import settings
 from django.contrib import admin
 from django.http import FileResponse, JsonResponse
 from django.urls import include, path
+from django.views.generic import RedirectView  # ← (선택) 옛 경로 흡수용
 from rest_framework_simplejwt.views import (
     TokenObtainPairView, TokenRefreshView, TokenVerifyView
 )
 from . import views
 from .views import landing
 from users.views import signup_view, setup_view, profile_view
+from tasks import urls as tasks_urls  # ← tasks의 api/page 라우트 분리 include용
 
 
 def root_healthcheck(_request):
@@ -46,9 +48,16 @@ urlpatterns = [
     path("setup/", setup_view, name="user_setup"),
     path("profile/", profile_view, name="user_profile"),
 
+        # ✅ API 라우트는 /api/ 아래로
     path("api/", include("users.urls")),
     path("api/", include("goals.urls")),
-    path("api/", include("tasks.urls")),
+    path("api/", include((tasks_urls.api_urlpatterns,  "tasks_api"), namespace="tasks_api")),
     path("api/", include("intakes.urls")),
     path("api/", include("feedbacks.urls")),
-]
+
+    # ✅ 페이지 라우트는 /tasks/ 아래로
+    path("tasks/", include((tasks_urls.page_urlpatterns, "tasks"), namespace="tasks")),
+
+    # (선택) 과거 오타/옛 링크 흡수: /task/dashboard/ → /tasks/dashboard/
+    path("task/dashboard/", RedirectView.as_view(url="/tasks/dashboard/", permanent=False)),
+ ]

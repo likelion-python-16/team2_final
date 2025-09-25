@@ -11,7 +11,8 @@
     <div class="logout-icon">👋</div>
     <h1>See you soon!</h1>
     <p>로그아웃되었습니다. 언제든 다시 돌아오세요.</p>
-    <a class="health-button-primary" href="/accounts/login/">로그인 화면으로</a>
+    <a class="health-button-primary" href="{% url 'login' %}">로그인 화면으로</a>
+    <a class="health-button-secondary" href="/">메인으로</a>
   </div>
 </div>
 {% endblock %}

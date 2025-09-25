@@ -56,7 +56,8 @@ INSTALLED_APPS = [
 # DRF 설정
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     # 기본: GET은 익명 허용, POST/PUT/DELETE는 인증 필요
     'DEFAULT_PERMISSION_CLASSES': [
@@ -74,8 +75,10 @@ REST_FRAMEWORK = {
 
 # JWT 설정
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=365*10),  # 10년
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=365*20), # 20년
+    # 'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    # 'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': False,      # 블랙리스트 안 쓰므로 False
     'BLACKLIST_AFTER_ROTATION': False,   # 블랙리스트 안 쓰므로 False
     'ALGORITHM': 'HS256',
@@ -177,5 +180,5 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # 커스텀 유저 모델 설정 (이 줄이 중요!)
 AUTH_USER_MODEL = 'users.CustomUser'
 
-LOGIN_REDIRECT_URL = '/tasks/dashboard/'
-LOGOUT_REDIRECT_URL = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/tasks/dashboard/'   # 로그인 후 항상 대시보드로
+LOGOUT_REDIRECT_URL = '/'                  # 로그아웃 후 메인(landing)으로

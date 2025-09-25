@@ -1,8 +1,8 @@
 <a class="logo" href="/">Healthcare</a>
 <nav class="nav" aria-label="주요 메뉴">
-  <a href="{% url 'tasks_workouts' %}">Weekly Planner</a>
-  <a href="{% url 'tasks_meals' %}">Nutrition</a>
-  <a href="{% url 'tasks_dashboard' %}">Dashboard</a>
+  <a href="{% url 'tasks:workouts' %}">Weekly Planner</a>
+  <a href="{% url 'tasks:meals' %}">Nutrition</a>
+  <a href="{% url 'tasks:dashboard' %}">Dashboard</a>
   <a href="{% url 'user_profile' %}">Profile</a>
   <form method="post" action="/accounts/logout/" class="nav-logout">
     {% csrf_token %}
