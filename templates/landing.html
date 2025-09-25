@@ -15,8 +15,13 @@
         Build healthy routines with personalized training, adaptive meal plans, and smart progress tracking—all in one place.
       </p>
       <div class="landing-hero__actions" data-animate data-animate-from="bottom">
-        <a href="{% url 'user_signup' %}" class="landing-cta landing-cta--primary">Get Started Free</a>
-        <a href="{% url 'tasks:dashboard' %}" class="landing-cta landing-cta--ghost">Explore the Dashboard</a>
+        {% if user.is_authenticated %}
+          <a href="{% url 'tasks:dashboard' %}" class="landing-cta landing-cta--primary">대시보드로 가기</a>
+        {% else %}
+          <a href="{% url 'login' %}" class="landing-cta landing-cta--primary">로그인</a>
+          <a href="{% url 'user_signup' %}" class="landing-cta landing-cta--ghost">회원가입</a>
+        {% endif %}
+
       </div>
       <div class="landing-hero__metrics" data-animate data-animate-from="bottom">
         <div>

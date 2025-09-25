@@ -51,12 +51,12 @@ urlpatterns = [
         # ✅ API 라우트는 /api/ 아래로
     path("api/", include("users.urls")),
     path("api/", include("goals.urls")),
-    path("api/", include((tasks_urls.api_urlpatterns,  "tasks_api"), namespace="tasks_api")),
+    path("api/", include((tasks_urls.api_urlpatterns,"tasks_api"))),
     path("api/", include("intakes.urls")),
     path("api/", include("feedbacks.urls")),
 
     # ✅ 페이지 라우트는 /tasks/ 아래로
-    path("tasks/", include((tasks_urls.page_urlpatterns, "tasks"), namespace="tasks")),
+    path("tasks/", include((tasks_urls.page_urlpatterns, "tasks"))),
 
     # (선택) 과거 오타/옛 링크 흡수: /task/dashboard/ → /tasks/dashboard/
     path("task/dashboard/", RedirectView.as_view(url="/tasks/dashboard/", permanent=False)),
