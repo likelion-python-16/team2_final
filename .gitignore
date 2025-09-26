@@ -21,4 +21,4 @@ staticfiles/
 # OS
 .DS_Store
 Thumbs.db
-EOF
+EOFdb.sqlite3

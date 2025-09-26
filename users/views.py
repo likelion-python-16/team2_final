@@ -138,7 +138,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
 def signup_view(request):
     if request.user.is_authenticated:
-        return redirect("tasks_dashboard")
+        return redirect("tasks:dashboard")
 
     if request.method == "POST":
         form = SignUpForm(request.POST)
@@ -202,7 +202,7 @@ def setup_view(request):
             )
 
             messages.success(request, "프로필 정보가 업데이트되었습니다.")
-            return redirect("tasks_dashboard")
+            return redirect("tasks:dashboard")
     else:
         form = SetupForm(initial=initial)
 

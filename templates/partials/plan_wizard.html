@@ -1,0 +1,168 @@
+<div id="plan-wizard" class="wizard" style="display:none">
+  <h3>Plan Wizard</h3>
+
+  <section>
+    <h4>Targets</h4>
+    <div id="pw-targets"></div>
+  </section>
+
+  <section id="step-exercises" style="display:none">
+    <h4>Exercises (<span id="pw-picked-target"></span>)</h4>
+    <div id="pw-ex-list"></div>
+  </section>
+
+  <section>
+    <h4>Params</h4>
+    <div id="pw-params"></div>
+    <button id="btn-create-tasks" class="btn">선택 항목으로 Task 생성</button>
+    <button id="btn-close-wizard" class="btn btn--ghost">닫기</button>
+  </section>
+</div>
+
+<script>
+  const API = window.API || "/api";
+  const $wizard  = document.getElementById('plan-wizard');
+  const $targets = document.getElementById('pw-targets');
+  const $exList  = document.getElementById('pw-ex-list');
+  const $params  = document.getElementById('pw-params');
+  const $picked  = document.getElementById('pw-picked-target');
+
+  // ✅ 위자드 열기 (표시 강제 + 위로 띄우기)
+  function openPlanWizard() {
+    $wizard.style.display = 'block';
+    $wizard.style.position = 'fixed';
+    $wizard.style.top = '10%';
+    $wizard.style.left = '50%';
+    $wizard.style.transform = 'translateX(-50%)';
+    $wizard.style.zIndex = '9999';
+    loadTargets();
+  }
+  window.openPlanWizard = openPlanWizard;
+
+  document.getElementById('btn-close-wizard')?.addEventListener('click', () => {
+    $wizard.style.display = 'none';
+  });
+
+  // 1) 타겟 목록
+  async function loadTargets() {
+    $targets.innerHTML = 'Loading...';
+    const res = await fetch(`${API}/exercises/targets/`, { headers: authHeaders() });
+    if (res.status === 401) { $targets.innerHTML = '로그인이 필요합니다'; return; }
+    const data = await res.json();
+    const targets = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+    if (!targets.length) { $targets.innerHTML = '<em>No targets</em>'; return; }
+    $targets.innerHTML = targets.map(t => `<button class="btn btn--ghost" data-target="${t}">${t}</button>`).join(' ');
+    $targets.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => loadExercises(btn.dataset.target));
+    });
+  }
+
+  // 2) 타겟별 운동 목록
+  async function loadExercises(target) {
+    $picked.textContent = target;
+    document.getElementById('step-exercises').style.display = '';
+    const res = await fetch(`${API}/exercises/?target=${encodeURIComponent(target)}`, {
+      headers: authHeaders()
+    });
+    if (res.status === 401) { $exList.innerHTML = '로그인이 필요합니다'; return; }
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+    $exList.innerHTML = items.map(x => `
+      <label style="display:block;margin:4px 0">
+        <input type="checkbox" name="ex" value="${x.id}" data-name="${x.name}">
+        ${x.name} <small>(${x.target})</small>
+      </label>`).join('');
+
+    renderParamEditors(items);
+  }
+
+  // 3) 선택 파라미터 편집 UI
+  function renderParamEditors(items) {
+    const pickedIds = new Set();
+    $exList.querySelectorAll('input[name="ex"]').forEach(chk => {
+      chk.addEventListener('change', () => {
+        if (chk.checked) pickedIds.add(+chk.value); else pickedIds.delete(+chk.value);
+        drawParams([...pickedIds]);
+      });
+    });
+    drawParams([]);
+  }
+
+  function drawParams(ids) {
+    if (!ids.length) { $params.innerHTML = '<em>운동을 선택하세요</em>'; return; }
+    $params.innerHTML = ids.map((id, i) => `
+      <fieldset class="card" data-ex="${id}" style="margin:8px 0;padding:8px">
+        <legend>Exercise #${id}</legend>
+        <label>순서 <input name="order" type="number" value="${i+1}" min="1"></label>
+        <label>시간(분) <input name="duration" type="number" value="20" min="1"></label>
+        <label>세트 <input name="sets" type="number" value="3" min="1"></label>
+        <label>반복 <input name="reps" type="number" value="10" min="1"></label>
+        <label>강도
+          <select name="intensity">
+            <option value="low">low</option>
+            <option value="mid" selected>mid</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+        <label>비고 <input name="notes" type="text" placeholder=""></label>
+        <input name="exercise_id" type="hidden" value="${id}">
+      </fieldset>
+    `).join('');
+  }
+
+  // 4) TaskItem 생성 → ✅ 자동 새로고침
+  document.getElementById('btn-create-tasks')?.addEventListener('click', async () => {
+    if (!window.currentPlan) return alert('Plan not loaded. 먼저 플랜을 생성/불러오세요.');
+    const groups = Array.from($params.querySelectorAll('fieldset'));
+    if (!groups.length) return alert('선택된 운동이 없습니다.');
+
+    const payloads = groups.map((g, idx) => {
+      const get = name => g.querySelector(`[name=${name}]`)?.value;
+      return {
+        workout_plan: window.currentPlan.id,
+        exercise: +get('exercise_id'),
+        duration_min: +get('duration') || 0,
+        target_sets: +get('sets') || 0,
+        target_reps: +get('reps') || 0,
+        intensity: get('intensity') || 'mid',
+        notes: get('notes') || '',
+        is_ai_recommended: false,
+        order: +get('order') || (idx + 1),
+      };
+    });
+
+    let ok = 0;
+    for (const body of payloads) {
+      const r = await fetch(`${API}/taskitems/`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(body)
+      });
+      if (r.ok) ok++;
+    }
+    alert(`Created ${ok}/${payloads.length} tasks`);
+
+    if (ok) {
+      // 위자드 닫기
+      $wizard.style.display = 'none';
+
+      // ✅ 서버 최신 상세 재조회
+      try {
+        if (window.currentPlan?.id) {
+          const r = await fetch(`${API}/workoutplans/${window.currentPlan.id}/`, { headers: authHeaders() });
+          if (r.ok) {
+            const detail = await r.json();
+            window.currentPlan = detail;
+
+            // Workouts 화면 카드 갱신
+            if (window.renderCurrentPlan) window.renderCurrentPlan(detail);
+            // Dashboard 화면 리스트 갱신
+            if (window.renderTasks) window.renderTasks(detail);
+          }
+        }
+      } catch (e) {
+        console.warn('refresh after create failed', e);
+      }
+    }
+  });
+</script>
