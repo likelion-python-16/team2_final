@@ -6,25 +6,25 @@ services:
       - "8000:8000"
     environment:
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,host.docker.internal"
-      DJANGO_DEBUG: "True"
+      DJANGO_DEBUG: "False"          # 배포형이면 False 권장
       DJANGO_TIME_ZONE: "Asia/Seoul"
-      # DB 환경변수
       DB_ENGINE: "postgres"
       POSTGRES_DB: "team2_final"
       POSTGRES_USER: "team2_user"
       POSTGRES_PASSWORD: "supersecret"
-      POSTGRES_HOST: "db"    # ← 컨테이너 네트워크에서는 서비스명
+      POSTGRES_HOST: "db"
       POSTGRES_PORT: "5432"
+      DJANGO_SETTINGS_MODULE: "team2_final.settings"
+      DJANGO_SECRET_KEY: "wLfHydVT0ct0BOkofS6xFwD3uh8tSIV3PxvSAbwFk_2mkRx6J3qUUav2Ji3yEiXkPuVWo9Ud3y6EgHuWIC1kVg"
     volumes:
       - .:/app
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    # Django 실행 커맨드 (Dockerfile CMD로도 가능)
     command: >
-      sh -c "python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:8000"
+      sh -c "python manage.py collectstatic --noinput && python manage.py migrate &&
+             gunicorn team2_final.wsgi:application -b 0.0.0.0:8000 --workers 3 --threads 2 --timeout 60 --chdir /app"
 
   db:
     image: postgres:16

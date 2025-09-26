@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 from datetime import timedelta
+from dotenv import load_dotenv
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,13 +23,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-8ro5jdf4f%7^yw+pft$ari3*&qeuaa*^p&$5t2x!c(e+svry++'
+# SECRET_KEY = 'django-insecure-8ro5jdf4f%7^yw+pft$ari3*&qeuaa*^p&$5t2x!c(e+svry++'
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
+if DEBUG:
+    SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
+else:
+    SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]  # 배포에서는 반드시 env로 주입
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS","").split(",") if os.getenv("DJANGO_ALLOWED_HOSTS") else []
+CSRF_TRUSTED_ORIGINS = []
+for h in ALLOWED_HOSTS:
+    h = h.strip()
+    if not h:
+        continue
+    CSRF_TRUSTED_ORIGINS += [f"http://{h}", f"https://{h}"]
+    # 개발용 8000 포트도 허용 (필요 시 제거)
+    CSRF_TRUSTED_ORIGINS += [f"http://{h}:8000", f"https://{h}:8000"]
 
 # Application definition
 
@@ -92,6 +106,7 @@ SIMPLE_JWT = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",  
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -132,7 +147,7 @@ if DB_ENGINE == "postgres":
             "NAME": os.getenv("POSTGRES_DB", "team2_final"),
             "USER": os.getenv("POSTGRES_USER", "team2_user"),
             "PASSWORD": os.getenv("POSTGRES_PASSWORD", "supersecret"),
-            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+            "HOST": os.getenv("POSTGRES_HOST", "db"),
             "PORT": os.getenv("POSTGRES_PORT", "5432"),
             "CONN_MAX_AGE": 60,
         }
@@ -180,8 +195,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
-#<<<<<<< HEAD
+STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
    # BASE_DIR / 'team2_final' / 'static',
