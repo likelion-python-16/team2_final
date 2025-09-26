@@ -47,12 +47,15 @@
   </section>
 
   <section class="profile-goals-flat">
-    <h2 class="profile-metrics__title">
-      <span class="profile-metrics__icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3v18m9-9H3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </span>
-      Current Goals
-    </h2>
+    <div class="profile-goals-flat__header">
+      <h2 class="profile-metrics__title">
+        <span class="profile-metrics__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3v18m9-9H3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        Current Goals
+      </h2>
+      <a class="profile-goals-flat__action" href="{% url 'user_setup' %}">Update Goals</a>
+    </div>
     <div class="profile-goals-flat__row">
       <div>
         <span class="profile-goals-flat__label">Primary Goal</span>
@@ -63,7 +66,6 @@
         <span class="profile-goals-flat__pill profile-goals-flat__pill--activity">{{ activity_label }}</span>
       </div>
     </div>
-    <a class="health-button-secondary profile-goals-flat__action" href="{% url 'user_setup' %}">Update Goals</a>
   </section>
 
   <section class="profile-card">

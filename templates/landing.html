@@ -7,32 +7,20 @@
   <section class="landing-hero" data-animate>
     <div class="landing-hero__background"></div>
     <div class="landing-hero__inner">
-      <div class="landing-hero__badge" data-animate data-animate-from="left">AI-Powered Wellness</div>
+      <div class="landing-hero__badge" data-animate data-animate-from="left">AI 기반 웰니스</div>
       <h1 class="landing-hero__title" data-animate data-animate-from="left">
-        AI plans your <span>workouts</span> and <span>nutrition</span> for you
+        <span class="landing-headline-line">AI가 당신의</span>
+        <span class="landing-headline-line"><span class="landing-highlight">운동</span><span class="landing-highlight--plain">과</span><span class="landing-highlight">영양</span><span class="landing-highlight--plain">을</span></span>
+        <span class="landing-headline-line landing-headline-line--nowrap">대신 설계합니다</span>
       </h1>
       <p class="landing-hero__subtitle" data-animate data-animate-from="left">
-        Build healthy routines with personalized training, adaptive meal plans, and smart progress tracking—all in one place.
+        맞춤형 트레이닝과 적응형 식단, 스마트 진행 관리까지 한 곳에서 건강한 루틴을 만들어 보세요.
       </p>
       <div class="landing-hero__actions" data-animate data-animate-from="bottom">
         <a href="{% url 'user_signup' %}" class="landing-cta landing-cta--primary landing-cta--pulse" data-arrow-trigger>
-          <span class="landing-cta__label">Get Started</span>
+          <span class="landing-cta__label">바로 시작하기</span>
           <span class="landing-cta__arrow" aria-hidden="true">→</span>
         </a>
-      </div>
-      <div class="landing-hero__metrics" data-animate data-animate-from="bottom">
-        <div>
-          <strong data-count="98" data-suffix="%">98%</strong>
-          <span>see measurable progress</span>
-        </div>
-        <div>
-          <strong data-count="24" data-suffix="/7">24/7</strong>
-          <span>AI guidance & insights</span>
-        </div>
-        <div>
-          <strong data-count="50" data-suffix="K+">50K+</strong>
-          <span>healthy meals logged</span>
-        </div>
       </div>
     </div>
     <div class="landing-hero__visual" data-animate data-animate-from="right">
@@ -47,8 +35,8 @@
           <div class="landing-phone__section landing-phone__section--goal" data-animate-child>
             <div class="landing-phone__icon">📸</div>
             <div class="landing-phone__body">
-              <p class="landing-phone__title">Breakfast Logged</p>
-              <p class="landing-phone__meta">Calories</p>
+              <p class="landing-phone__title">아침 식사 기록 완료</p>
+              <p class="landing-phone__meta">칼로리</p>
               <div class="landing-progress" data-progress="90">
                 <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
                 <span class="landing-progress__percent">90%</span>
@@ -59,35 +47,37 @@
           <div class="landing-phone__section" data-animate-child>
             <div class="landing-phone__icon">🏋️‍♀️</div>
             <div class="landing-phone__body">
-              <p class="landing-phone__title">Upper Body Strength</p>
-              <p class="landing-phone__meta">Progress</p>
+              <p class="landing-phone__title">상체 근력</p>
+              <p class="landing-phone__meta">진행도</p>
               <div class="landing-progress" data-progress="60">
                 <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
                 <span class="landing-progress__percent">60%</span>
               </div>
             </div>
-            <button type="button" class="landing-phone__cta">Continue Workout</button>
+            <button type="button" class="landing-phone__cta">운동 계속하기</button>
           </div>
 
           <div class="landing-phone__mini-grid" data-stagger>
             <div class="landing-phone__mini" data-stagger-item>
               <span class="landing-phone__mini-value">85%</span>
-              <span class="landing-phone__mini-caption">Workout match</span>
+              <span class="landing-phone__mini-caption">운동 적합도</span>
             </div>
             <div class="landing-phone__mini" data-stagger-item>
               <span class="landing-phone__mini-value">92%</span>
-              <span class="landing-phone__mini-caption">Meal quality</span>
+              <span class="landing-phone__mini-caption">식단 품질</span>
             </div>
             <div class="landing-phone__mini" data-stagger-item>
               <span class="landing-phone__mini-value">78%</span>
-              <span class="landing-phone__mini-caption">Recovery</span>
+              <span class="landing-phone__mini-caption">회복</span>
             </div>
           </div>
 
           <div class="landing-phone__insight" data-animate-child>
-            <div class="landing-phone__icon">🧠</div>
-            <p class="landing-phone__title">AI Insight</p>
-            <p class="landing-phone__meta">Great progress! Protein intake is on track. Consider adding more fiber.</p>
+            <header class="landing-phone__insight-header">
+              <div class="landing-phone__icon">🧠</div>
+              <p class="landing-phone__title">AI 인사이트</p>
+            </header>
+            <p class="landing-phone__meta landing-phone__meta--emphasis">멋진 진전이에요! 단백질 섭취가 잘 유지되고 있어요. 식이섬유를 조금 더 추가해 보세요.</p>
           </div>
         </div>
       </div>
@@ -95,76 +85,66 @@
   </section>
 
   <section id="features" class="landing-section">
-    <div class="landing-section__intro" data-animate>
-      <h2>Everything you need for a <span class="landing-highlight">healthier</span> you</h2>
-      <p>Our AI adapts to your progress so you can stay consistent with less guesswork.</p>
-    </div>
-    <div class="landing-feature-list">
+    <div class="landing-feature-top">
       <article class="landing-feature-card landing-feature-card--recommendations" data-animate>
         <div class="landing-feature-card__content">
           <div class="landing-feature-card__icon">🧠</div>
-          <h3>AI-Powered Recommendations</h3>
-          <p>Get personalized meal plans and workout routines that adapt to your progress, preferences, and lifestyle changes in real-time.</p>
+          <h3>AI 맞춤 추천</h3>
+          <p class="landing-feature-card__summary">
+            <span>진행 상황과 선호도, 라이프스타일 변화를 반영해</span>
+            <span>맞춤 식단과 운동 루틴을 제안해 드립니다.</span>
+          </p>
           <div class="landing-feature-tags">
-            <span>Smart</span>
-            <span>Adaptive</span>
-            <span>Personal</span>
-          </div>
-        </div>
-        <div class="landing-feature-card__panel">
-          <header>
-            <span class="landing-feature-card__panel-icon">🩺</span>
-            <span class="landing-feature-card__panel-title">Weekly Plan Generated</span>
-            <span class="landing-feature-card__panel-dot"></span>
-          </header>
-          <div class="landing-feature-card__chips" data-stagger>
-            <div class="landing-feature-card__chip" data-stagger-item>
-              <span class="landing-feature-card__chip-value">85%</span>
-              <span class="landing-feature-card__chip-label">Match</span>
-            </div>
-            <div class="landing-feature-card__chip" data-stagger-item>
-              <span class="landing-feature-card__chip-value">92%</span>
-              <span class="landing-feature-card__chip-label">Match</span>
-            </div>
-            <div class="landing-feature-card__chip" data-stagger-item>
-              <span class="landing-feature-card__chip-value">78%</span>
-              <span class="landing-feature-card__chip-label">Match</span>
-            </div>
+            <span>스마트</span>
+            <span>적응형</span>
+            <span>개인맞춤</span>
           </div>
         </div>
       </article>
+      <div class="landing-section__intro landing-section__intro--left" data-animate data-animate-from="left">
+        <h2 class="landing-section__headline">
+          <span class="landing-section__headline-line">더 <span class="landing-highlight">건강한</span> 나를</span>
+          <span class="landing-section__headline-line">위한 모든 것</span>
+        </h2>
+        <p class="landing-section__tagline">
+          <span class="landing-section__tagline-line">우리 AI는 당신이 번거로운 고민 없이</span>
+          <span class="landing-section__tagline-line">꾸준함을 이어가도록 도와줍니다.</span>
+        </p>
+      </div>
+    </div>
+    <div class="landing-feature-list">
       <article class="landing-feature-card landing-feature-card--photo" data-animate>
         <div class="landing-photo-card" data-animate-child>
           <div class="landing-photo-card__icon">📸</div>
-          <p class="landing-photo-card__value">450 calories</p>
-          <p class="landing-photo-card__meta">detected in 0.3 seconds</p>
+          <p class="landing-photo-card__value">450칼로리</p>
+          <p class="landing-photo-card__meta">0.3초 만에 분석</p>
           <div class="landing-photo-card__dots"><span></span><span></span><span></span></div>
         </div>
         <div class="landing-photo-details" data-animate-child>
           <div class="landing-photo-details__header">
             <span class="landing-photo-card__icon landing-photo-card__icon--small">📸</span>
             <div>
-              <h3>Photo-Based Tracking</h3>
-              <p>Simply snap a photo of your meal and get instant calorie counts, macronutrient breakdowns, and nutritional insights powered by advanced AI.</p>
+              <h3>사진 기반 추적</h3>
+              <p>식사 사진만 찍으면 고도화된 AI가 즉시 칼로리, 영양소 비율, 인사이트를 분석해 알려 드립니다.</p>
             </div>
           </div>
           <div class="landing-progress" data-progress="95" data-gradient="photo">
             <div class="landing-progress__label">
-              <span>Accuracy</span>
+              <span>정확도</span>
               <span class="landing-progress__percent">95%</span>
             </div>
             <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
           </div>
           <div class="landing-progress" data-progress="98" data-gradient="photo">
             <div class="landing-progress__label">
-              <span>Speed</span>
+              <span>속도</span>
               <span class="landing-progress__percent">98%</span>
             </div>
             <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
           </div>
           <div class="landing-progress" data-progress="92" data-gradient="photo">
             <div class="landing-progress__label">
-              <span>Recognition</span>
+              <span>인식률</span>
               <span class="landing-progress__percent">92%</span>
             </div>
             <div class="landing-progress__track"><span class="landing-progress__fill"></span></div>
@@ -174,22 +154,22 @@
       <article class="landing-feature-card landing-feature-card--workouts" data-animate>
         <div class="landing-workouts-card" data-animate-child>
           <div class="landing-workouts-card__icon">🏋️‍♂️</div>
-          <h3>Weekly Workout Sequences</h3>
-          <p>Receive customized weekly workout plans that evolve with your fitness level and keep you motivated to reach your goals.</p>
+          <h3>주간 운동 시퀀스</h3>
+          <p>체력 수준에 맞춰 진화하는 맞춤 주간 운동 플랜으로 목표를 향한 동기와 리듬을 지켜 드립니다.</p>
           <div class="landing-workouts-tags">
-            <span>Goal-focused</span>
-            <span>Progressive</span>
-            <span>Personalized</span>
-            <span>Adaptive</span>
+            <span>목표 집중</span>
+            <span>점진적</span>
+            <span>개인화</span>
+            <span>적응형</span>
           </div>
         </div>
         <div class="landing-workouts-panel" data-animate-child data-stagger>
-          <header>This Week’s Plan</header>
+          <header>이번 주 계획</header>
           <ul>
-            <li data-stagger-item><span>Mon: Upper Body</span><span class="dot"></span></li>
-            <li data-stagger-item><span>Tue: Cardio</span><span class="dot"></span></li>
-            <li data-stagger-item><span>Wed: Core</span><span class="dot"></span></li>
-            <li data-stagger-item><span>Thu: Lower Body</span><span class="dot"></span></li>
+            <li data-stagger-item><span>월: 상체</span><span class="dot"></span></li>
+            <li data-stagger-item><span>화: 유산소</span><span class="dot"></span></li>
+            <li data-stagger-item><span>수: 코어</span><span class="dot"></span></li>
+            <li data-stagger-item><span>목: 하체</span><span class="dot"></span></li>
           </ul>
         </div>
       </article>
@@ -200,14 +180,15 @@
 
   <section class="landing-section landing-section--cta" data-animate>
     <div class="landing-section__intro" data-animate>
-      <h2>Ready to transform your <span class="landing-highlight">health journey</span>?</h2>
-      <p>Join thousands of people who train smarter with AI-powered planning.</p>
+      <h2 class="landing-cta__headline">
+        <span class="landing-cta__line">당신의 <span class="landing-highlight">건강</span>을</span>
+        <span class="landing-cta__line">바꿀 준비가 되었나요?</span>
+      </h2>
     </div>
     <form class="landing-newsletter" method="get" action="{% url 'user_signup' %}" data-animate>
-      <input type="email" name="email" placeholder="Enter your email" required>
-      <button type="submit" class="landing-newsletter__cta landing-cta--pulse">Get Started</button>
+      <input type="email" name="email" placeholder="이메일을 입력하세요" required>
+      <button type="submit" class="landing-newsletter__cta landing-cta--pulse">시작하기</button>
     </form>
-    <p class="landing-notice" data-animate>Free to try · No credit card required · Cancel anytime</p>
   </section>
 </main>
 {% endblock %}
