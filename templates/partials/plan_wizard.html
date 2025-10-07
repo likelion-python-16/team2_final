@@ -1,0 +1,335 @@
+<!-- templates/partials/plan_wizard.html -->
+<style>
+  /* === 모달 오버레이 & 컨텐트 (최상단 보장) === */
+  #plan-modal{
+    position: fixed; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(0,0,0,.45);
+    z-index: 2147483647;
+  }
+  #plan-modal .modal-content{
+    background:#fff; width:min(840px,92vw); max-height:92vh;
+    border-radius:12px; padding:16px 20px; overflow:hidden;
+    box-shadow:0 10px 40px rgba(0,0,0,.25);
+  }
+
+  /* === 위자드 레이아웃/스크롤 === */
+  #plan-wizard{ display:flex; flex-direction:column; gap:12px; overflow-y:auto; max-height:100%; }
+  #plan-wizard .wizard-header{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  #plan-wizard .wizard-body{ overflow-y:auto; max-height: calc(92vh - 140px); }
+  #plan-wizard .wizard-actions{
+    position: sticky; bottom: 0;
+    background: linear-gradient(to top, rgba(255,255,255,.98) 60%, rgba(255,255,255,0));
+    backdrop-filter: blur(2px);
+    border-top: 1px solid #e5e7eb;
+    padding-top: 12px; margin-top: 8px; z-index: 1;
+    display:flex; gap:8px; justify-content:flex-end;
+  }
+
+  /* === 하늘색 카드 + 글자 검정 === */
+  #plan-wizard fieldset.card{
+    background:#e0f2fe; border:1px solid #93c5fd; border-radius:12px;
+    padding:8px; box-shadow:0 8px 24px rgba(2,6,23,.08);
+  }
+  #plan-wizard fieldset.card,
+  #plan-wizard fieldset.card *,
+  #plan-wizard fieldset.card > legend{ color:#000 !important; }
+  #plan-wizard fieldset.card > legend{
+    background:#dbeafe; border:1px solid #93c5fd;
+    border-radius:8px; padding:2px 8px; font-weight:700;
+  }
+  #plan-wizard fieldset.card label{
+    display:grid; grid-template-columns:110px 1fr;
+    gap:8px; align-items:center; margin:6px 0;
+  }
+  #plan-wizard fieldset.card input[type="number"],
+  #plan-wizard fieldset.card input[type="text"],
+  #plan-wizard fieldset.card select{
+    background:#fff; color:#000 !important; border:1px solid #93c5fd;
+    border-radius:8px; padding:6px 8px;
+  }
+</style>
+
+<div class="modal" id="plan-modal" style="display:none" aria-hidden="true">
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="pw-title">
+    <section id="plan-wizard" class="wizard" aria-describedby="pw-desc">
+      <!-- 헤더 -->
+      <header class="wizard-header">
+        <div>
+          <h3 id="pw-title" style="margin:0;">Plan Wizard</h3>
+          <p id="pw-desc" class="muted" style="margin:2px 0 0;">타겟 선택 → 운동 선택 → 파라미터 설정 → Task 생성</p>
+        </div>
+        <button type="button" class="btn btn--ghost" id="btn-close-wizard" aria-label="닫기">✕</button>
+      </header>
+
+      <!-- 본문(스크롤) -->
+      <div class="wizard-body">
+        <section>
+          <h4>Targets</h4>
+          <div id="pw-targets">Loading...</div>
+        </section>
+
+        <section id="step-exercises" style="display:none; margin-top:12px;">
+          <h4>Exercises (<span id="pw-picked-target"></span>)</h4>
+          <div id="pw-ex-list"></div>
+        </section>
+
+        <section style="margin-top:12px;">
+          <h4>Params</h4>
+          <div id="pw-params"><em>운동을 선택하세요</em></div>
+        </section>
+      </div>
+
+      <!-- 하단 고정 액션바 -->
+      <div class="wizard-actions" data-actions>
+        <button id="btn-create-tasks" class="btn btn--primary">선택 항목으로 Task 생성</button>
+        <button id="btn-cancel-wizard" class="btn btn--ghost">닫기</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  (function(){
+    const API      = window.API || "/api";
+    const $modal   = document.getElementById('plan-modal');
+    const $wizard  = document.getElementById('plan-wizard');
+    const $targets = document.getElementById('pw-targets');
+    const $exList  = document.getElementById('pw-ex-list');
+    const $params  = document.getElementById('pw-params');
+    const $picked  = document.getElementById('pw-picked-target');
+
+    /* === authHeaders 안전 래퍼 (없어도 동작하도록) === */
+    const _authHeaders = (typeof window.authHeaders === 'function')
+      ? window.authHeaders
+      : () => ({ 'Content-Type': 'application/json' });
+
+    /* === 모달을 body 직속으로 옮겨 inert 영향 제거 === */
+    if ($modal && $modal.parentElement !== document.body) {
+      document.body.appendChild($modal);
+    }
+
+    /* === 배경 inert는 "모달의 형제"만 처리 (조상 inert 금지) === */
+    let inertTargets = [];
+    function trapBackground(enable) {
+      const scope = $modal?.parentElement || document.body;
+      inertTargets = Array.from(scope.children).filter(el => el !== $modal);
+      inertTargets.forEach(el => {
+        if (enable) el.setAttribute('inert', '');
+        else el.removeAttribute('inert');
+      });
+    }
+
+    /* === 포커스 저장/복원 === */
+    let lastActive = null;
+
+    /* ========= 열기 ========= */
+    function openPlanWizard() {
+      if (!window.currentPlan.id) {
+        alert('오늘 플랜을 먼저 생성해 주세요. 상단의 "Generate New Plan" 버튼을 눌러 플랜을 보장한 뒤 진행하세요.');
+        return;
+      }
+      // 1) 현재 포커스 저장
+      lastActive = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+      // 2) 모달 표시 + 스크린리더 노출
+      $modal.style.display = 'flex';
+      $modal.removeAttribute('aria-hidden');
+
+      // 3) 배경 비활성화
+      trapBackground(true);
+
+      // 4) 모달 내부로 포커스 이동(다음 프레임)
+      const focusTarget = $wizard || $modal.querySelector('[role="dialog"]');
+      if (focusTarget) {
+        focusTarget.setAttribute('tabindex','-1');
+        requestAnimationFrame(() => focusTarget.focus());
+      }
+
+      // 5) 초기화 + 타겟 로드
+      const step = document.getElementById('step-exercises');
+      if (step) step.style.display = 'none';
+      $exList.textContent = '';
+      $params.innerHTML = '<em>운동을 선택하세요</em>';
+      loadTargets();
+    }
+
+    /* ========= 닫기 (경고 해결 버전) ========= */
+    function closePlanWizard() {
+      // 현재 활성 요소가 모달 내부면 먼저 블러
+      const active = document.activeElement;
+      if (active && $modal.contains(active) && typeof active.blur === 'function') {
+        active.blur();
+      }
+
+      // 배경 inert 해제
+      trapBackground(false);
+
+      // 포커스 복원 대상 결정
+      const fallback = document.getElementById('wk-ensure-today');
+      let target = (lastActive && lastActive.isConnected) ? lastActive : fallback;
+      if (!target) {
+        target = document.querySelector('main, [role="main"]') || document.body;
+      }
+      if (target && typeof target.focus === 'function') {
+        if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex','-1');
+        target.focus({ preventScroll: true });
+      }
+
+      // 다음 프레임에서 aria-hidden 적용(포커스 이동이 먼저 끝나도록)
+      requestAnimationFrame(() => {
+        $modal.setAttribute('aria-hidden','true');
+        $modal.style.display = 'none';
+      });
+    }
+
+    window.openPlanWizard = openPlanWizard;
+
+    /* === 닫기 바인딩/ESC/오버레이 === */
+    document.getElementById('btn-close-wizard')?.addEventListener('click', closePlanWizard);
+    document.getElementById('btn-cancel-wizard')?.addEventListener('click', closePlanWizard);
+    $modal.addEventListener('click', (e) => { if (e.target === $modal) closePlanWizard(); });
+    document.addEventListener('keydown', (e) => {
+      const opened = $modal && $modal.style.display !== 'none';
+      if (opened && e.key === 'Escape') closePlanWizard();
+    });
+
+    /* ========= 1) 타겟 목록 ========= */
+    async function loadTargets() {
+      $targets.textContent = 'Loading...';
+      try {
+        const res = await fetch(`${API}/exercises/targets/`, { headers: _authHeaders() });
+        if (res.status === 401) { $targets.innerHTML = '로그인이 필요합니다'; return; }
+        const data = await res.json();
+        const targets = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+        if (!targets.length) { $targets.innerHTML = '<em>No targets</em>'; return; }
+        $targets.innerHTML = targets.map(t => `<button class="btn btn--ghost" data-target="${t}">${t}</button>`).join(' ');
+        $targets.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', () => loadExercises(btn.dataset.target));
+        });
+      } catch (err) {
+        console.error(err);
+        $targets.innerHTML = '<em>로드 실패</em>';
+      }
+    }
+
+    /* ========= 2) 타겟별 운동 목록 ========= */
+    async function loadExercises(target) {
+      $picked.textContent = target;
+      document.getElementById('step-exercises').style.display = '';
+      $exList.innerHTML = 'Loading...';
+      try {
+        const res = await fetch(`${API}/exercises/?target=${encodeURIComponent(target)}`, { headers: _authHeaders() });
+        if (res.status === 401) { $exList.innerHTML = '로그인이 필요합니다'; return; }
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+        $exList.innerHTML = items.map(x => `
+          <label style="display:block;margin:4px 0">
+            <input type="checkbox" name="ex" value="${x.id}" data-name="${x.name}">
+            ${x.name} <small>(${x.target})</small>
+          </label>
+        `).join('');
+        renderParamEditors(items);
+      } catch (err) {
+        console.error(err);
+        $exList.innerHTML = '<em>로드 실패</em>';
+      }
+    }
+
+    /* ========= 3) 선택 파라미터 편집 UI ========= */
+    function renderParamEditors(items) {
+      const pickedIds = new Set();
+      $exList.querySelectorAll('input[name="ex"]').forEach(chk => {
+        chk.addEventListener('change', () => {
+          if (chk.checked) pickedIds.add(+chk.value); else pickedIds.delete(+chk.value);
+          drawParams([...pickedIds]);
+        });
+      });
+      drawParams([]);
+    }
+
+    function drawParams(ids) {
+      if (!ids.length) { $params.innerHTML = '<em>운동을 선택하세요</em>'; return; }
+      $params.innerHTML = ids.map((id, i) => `
+        <fieldset class="card" data-ex="${id}" style="margin:8px 0;padding:8px">
+          <legend>Exercise #${id}</legend>
+          <label>순서 <input name="order" type="number" value="${i+1}" min="1"></label>
+          <label>시간(분) <input name="duration" type="number" value="20" min="1"></label>
+          <label>세트 <input name="sets" type="number" value="3" min="1"></label>
+          <label>반복 <input name="reps" type="number" value="10" min="1"></label>
+          <label>강도
+            <select name="intensity">
+              <option value="low">low</option>
+              <option value="medium" selected>medium</option>
+              <option value="high">high</option>
+            </select>
+          </label>
+          <label>비고 <input name="notes" type="text" placeholder=""></label>
+          <input name="exercise_id" type="hidden" value="${id}">
+        </fieldset>
+      `).join('');
+    }
+
+    /* ========= 4) TaskItem 생성 → 새로고침 ========= */
+    document.getElementById('btn-create-tasks')?.addEventListener('click', async () => {
+      if (!window.currentPlan) return alert('Plan not loaded. 먼저 플랜을 생성/불러오세요.');
+      const groups = Array.from($params.querySelectorAll('fieldset'));
+      if (!groups.length) return alert('선택된 운동이 없습니다.');
+
+      const payloads = groups.map((g, idx) => {
+        const get = name => g.querySelector(`[name=${name}]`)?.value;
+        let intensity = get('intensity') || 'medium';
+        if (intensity === 'mid') intensity = 'medium'; // 안전 보정
+        return {
+          workout_plan: window.currentPlan.id,
+          exercise: +get('exercise_id'),
+          duration_min: +get('duration') || 0,
+          target_sets: +get('sets') || 0,
+          target_reps: +get('reps') || 0,
+          intensity,
+          notes: get('notes') || '',
+          is_ai_recommended: false,
+          order: +get('order') || (idx + 1),
+        };
+      });
+
+      let ok = 0, fail = 0;
+      for (const body of payloads) {
+        try {
+          const r = await fetch(`${API}/taskitems/`, {
+            method: 'POST',
+            headers: _authHeaders(),
+            body: JSON.stringify(body)
+          });
+          if (r.ok) ok++; else fail++;
+        } catch { fail++; }
+      }
+      alert(`Created ${ok}/${payloads.length} tasks`);
+
+      if (ok) {
+        closePlanWizard();
+        try {
+          if (window.currentPlan?.id) {
+            const r = await fetch(`${API}/workoutplans/${window.currentPlan.id}/`, { headers: _authHeaders() });
+            if (r.ok) {
+              const detail = await r.json();
+              window.currentPlan = detail;
+              if (window.renderCurrentPlan) window.renderCurrentPlan(detail);
+              if (window.renderTasks) window.renderTasks(detail);
+            }
+          }
+        } catch (e) {
+        }
+      }
+    });
+
+    /* ========= 안전 훅(선택) : 외부 버튼에서도 잘 열리게 ========= */
+    const btnEnsure = document.getElementById('wk-ensure-today');
+    if (btnEnsure) {
+      btnEnsure.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof window.openPlanWizard !== 'function') openPlanWizard();
+      });
+    }
+  })();
+</script>

@@ -1,0 +1,76 @@
+{% load static %}
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Healthcare{% endblock %}</title>
+
+  <!-- 폰트 & 전역 CSS -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+
+  {% block extra_css %}{% endblock %}
+
+  <script>
+    (function() {
+      function getCookie(name) {
+        const cookies = document.cookie ? document.cookie.split('; ') : [];
+        for (let i = 0; i < cookies.length; i++) {
+          const parts = cookies[i].split('=');
+          const key = decodeURIComponent(parts[0]);
+          if (key === name) {
+            return decodeURIComponent(parts.slice(1).join('='));
+          }
+        }
+      }
+
+      window.CSRF_TOKEN = getCookie('csrftoken') || '';
+      window.API = window.API || '/api';
+
+      window.authHeaders = function(extra) {
+        const headers = Object.assign({
+          'Content-Type': 'application/json'
+        }, extra || {});
+
+        if (window.CSRF_TOKEN && !headers['X-CSRFToken']) {
+          headers['X-CSRFToken'] = window.CSRF_TOKEN;
+        }
+
+        try {
+          const access = localStorage.getItem('access');
+          if (access && !headers['Authorization']) {
+            headers['Authorization'] = `Bearer ${access}`;
+          }
+        } catch (_) {
+          // 로컬스토리지 미지원 환경은 무시
+        }
+
+        return headers;
+      };
+    })();
+  </script>
+</head>
+<body>
+  <!-- 헤더(기존 partial 감싸기) -->
+
+  <header class="site-header">
+    <div class="container row between center">
+      {% include 'partials/navbar.html' %}
+    </div>
+  </header>
+
+
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+
+  <!-- 푸터(기존 partial 감싸기) -->
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

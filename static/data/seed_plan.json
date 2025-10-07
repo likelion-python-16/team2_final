@@ -1,0 +1,9 @@
+{
+  "title": "Upper Body Starter",
+  "target_focus": "chest,back,shoulders",
+  "tasks": [
+    { "exercise": 1,  "sets": 3, "reps": 10, "duration_min": 12, "intensity": "medium" },
+    { "exercise": 10, "sets": 3, "reps":  8, "duration_min": 10, "intensity": "medium" },
+    { "exercise": 22, "sets": 3, "reps": 10, "duration_min": 10, "intensity": "mid" }
+  ]
+}

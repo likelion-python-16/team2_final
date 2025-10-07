@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Workout Plan{% endblock %}
+
+{% block extra_css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
+  <style>
+    /* 요일/날짜 바 + 페이지네이션 */
+    .wk-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-top:4px}
+    .wk-days{display:flex;gap:8px;overflow:auto;padding:4px 0}
+    .wk-day{border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;background:#fff;cursor:pointer}
+    .wk-day.is-active{background:#111;color:#fff;border-color:#111}
+    .wk-day .label{display:block;font-size:12px;opacity:.8}
+    .wk-day .date{display:block;font-weight:700}
+    .wk-pager{display:flex;gap:6px;align-items:center}
+    .wk-pager .btn{padding:6px 10px}
+
+    /* 현재 플랜 카드(하늘색 카드) */
+    #wk-current-plan{margin-top:12px}
+    #wk-current-plan .card{background:#e0f2fe;border:1px solid #93c5fd;border-radius:12px;padding:10px}
+    #wk-current-plan .card *{color:#000}
+    #wk-current-plan .card legend{background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;padding:2px 8px;font-weight:700}
+    #wk-current-plan .task{padding:6px 0;border-bottom:1px solid #eee}
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="workouts-shell">
+  <header class="workouts-header">
+    <div class="workouts-header__title">
+      <h1>Your Workout Plan</h1>
+      <p>AI-generated weekly sequence based on your goals</p>
+    </div>
+  </header>
+
+  <!-- ✅ 플랜 툴바 + 날짜/요일 바 -->
+  <section class="workouts-week">
+    <div class="workouts-week__header">
+      <h2>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 2v3m10-3v3M4 8h16M5 5h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        This Week
+      </h2>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="date" id="wk-plan-date" />
+        <a class="health-button-secondary" href="#" id="wk-load-by-date">Load by Date</a>
+        <a class="health-button-secondary" href="#" id="wk-ensure-today">Generate New Plan</a>
+      </div>
+    </div>
+
+    <!-- 날짜/요일 + 페이지네이션 -->
+    <div class="wk-bar">
+      <div class="wk-days" id="wk-days"></div>
+      <div class="wk-pager">
+        <button class="btn btn--ghost" id="wk-prev-day">◀ Prev</button>
+        <span id="wk-current-label" class="muted"></span>
+        <button class="btn btn--ghost" id="wk-next-day">Next ▶</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ✅ 현재 플랜 표시 카드 -->
+  <section id="wk-current-plan" class="dashboard-card">
+    <div class="dashboard-card__heading">
+      <div>
+        <h2>Current Plan</h2>
+        <p class="dashboard-card__sub">
+          Date: <span id="wk-plan-date-label">-</span> ·
+          Plan ID: <span id="wk-plan-id">-</span> ·
+          Tasks: <span id="wk-plan-taskcount">0</span> ·
+          Total: <span id="wk-plan-duration">0</span> min
+        </p>
+      </div>
+    </div>
+    <div id="wk-tasks-list"></div>
+  </section>
+
+  <!-- (기존 데모 카드 유지 시) -->
+  <section class="workouts-list">
+    {% for workout in workouts_plan %}
+      <article class="workout-card">
+        <header class="workout-card__header">
+          <div>
+            <h3>{{ workout.name }}</h3>
+            <div class="workout-card__meta">
+              <span class="workout-tag workout-tag--{{ workout.type }}">{{ workout.type }}</span>
+              <span class="workout-tag workout-tag--{{ workout.difficulty }}">{{ workout.difficulty }}</span>
+              <span class="workout-duration">{{ workout.duration }} min</span>
+            </div>
+          </div>
+          {% if workout.completed %}
+            <span class="workout-status workout-status--done">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12 10 17 19 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Completed
+            </span>
+          {% else %}
+            <a class="workout-start" href="#"><span>▶</span>Start Workout</a>
+          {% endif %}
+        </header>
+
+        <div class="workout-exercises">
+          <h4>Exercises</h4>
+          <ul>
+            {% for exercise in workout.exercises %}
+              <li>
+                <span>{{ exercise.name }}</span>
+                <span class="workout-exercises__detail">
+                  {% if exercise.sets and exercise.reps %}
+                    {{ exercise.sets }} × {{ exercise.reps }}
+                  {% else %}
+                    {{ exercise.duration }}s
+                  {% endif %}
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+</div>
+
+<!-- ✅ 플랜 위자드 -->
+{% include "partials/plan_wizard.html" %}
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script src="{% static 'js/workouts.js' %}"></script>
+  <script>
+    // ========= 공통 =========
+    const API = window.API || "/api";
+
+    // 🔐 안전한 헤더 래퍼: window.authHeaders 있으면 그걸 쓰고, 없으면 기본 헤더 사용
+    const getAuthHeaders = (() => {
+      const base = (typeof window.authHeaders === 'function') ? window.authHeaders.bind(window) : null;
+      return () => base ? base() : { 'Content-Type': 'application/json' };
+    })();
+
+    // ========= 날짜 유틸 (KST 기준) =========
+    function toKST(d){ return new Date(d.toLocaleString('en-US',{timeZone:'Asia/Seoul'})); }
+    function startOfDayKST(d){ const t=toKST(d); return new Date(t.getFullYear(), t.getMonth(), t.getDate()); }
+    function addDays(d, n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+    function fmtISO(d){ const y=d.getFullYear(); const m=String(d.getMonth()+1).padStart(2,'0'); const dd=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${dd}`; }
+    const DAYS_KO = ['일','월','화','수','목','금','토'];
+
+    // ========= 상태 =========
+    const TODAY = startOfDayKST(new Date());
+    const RANGE_START = addDays(TODAY, -29); // 최근 30일
+    const RANGE_END   = TODAY;
+
+    let selectedDate = TODAY; // 현재 선택된 날짜
+
+    // ========= DOM =========
+    const $daysWrap = document.getElementById('wk-days');
+    const $dateInput = document.getElementById('wk-plan-date');
+    const $loadByDate = document.getElementById('wk-load-by-date');
+    const $ensureToday = document.getElementById('wk-ensure-today');
+    const $label = document.getElementById('wk-current-label');
+
+    const $planDateLabel = document.getElementById('wk-plan-date-label');
+    const $planIdEl  = document.getElementById('wk-plan-id');
+    const $planCntEl = document.getElementById('wk-plan-taskcount');
+    const $planMinEl = document.getElementById('wk-plan-duration');
+    const $list      = document.getElementById('wk-tasks-list');
+
+    // ========= 주(월→일) 버튼 렌더 =========
+    function startOfWeekMon(d){
+      const wd = d.getDay(); // 0=일
+      const diff = wd === 0 ? -6 : (1 - wd); // 월=1
+      return addDays(d, diff);
+    }
+
+    function renderWeekBar(centerDate){
+      // centerDate가 속한 주의 월~일 생성
+      const start = startOfWeekMon(centerDate);
+      const days = Array.from({length:7}, (_,i)=>addDays(start,i));
+      $daysWrap.innerHTML = days.map(d=>{
+        const day = DAYS_KO[d.getDay()];
+        const label = `${d.getMonth()+1}/${d.getDate()}`;
+        const isActive = fmtISO(d) === fmtISO(selectedDate);
+        return `
+          <button type="button" class="wk-day ${isActive?'is-active':''}" data-date="${fmtISO(d)}">
+            <span class="label">${day}</span>
+            <span class="date">${label}</span>
+          </button>
+        `;
+      }).join('');
+
+      // 클릭 시 로드
+      $daysWrap.querySelectorAll('.wk-day').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const iso = btn.dataset.date;
+          const d = new Date(iso+'T00:00:00');
+          selectDate(d, {load:true, rerender:true});
+        });
+      });
+
+      // 현재 라벨
+      $label.textContent = `${selectedDate.getMonth()+1}/${selectedDate.getDate()} (${DAYS_KO[selectedDate.getDay()]})`;
+    }
+
+    function clampToRange(d){
+      if (d < RANGE_START) return RANGE_START;
+      if (d > RANGE_END) return RANGE_END;
+      return d;
+    }
+
+    // ========= 날짜 선택 처리 =========
+    async function selectDate(d, opts={load:true, rerender:true}){
+      selectedDate = clampToRange(startOfDayKST(d));
+      if ($dateInput){
+        $dateInput.value = fmtISO(selectedDate);
+      }
+      if (opts.rerender) renderWeekBar(selectedDate);
+      if (opts.load) await loadPlanByDate(selectedDate);
+    }
+
+    // ========= 플랜 로딩 & 렌더 =========
+    async function loadPlanByDate(d){
+      const iso = fmtISO(d);
+      // by-date → 첫 번째 플랜 → 상세
+      const r = await fetch(`${API}/workoutplans/by-date/?date=${encodeURIComponent(iso)}`, {
+        headers: getAuthHeaders()
+      });
+      const data = await r.json().catch(()=>[]);
+      const plans = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+      if (!r.ok || !plans.length){
+        $planDateLabel.textContent = `${iso}`;
+        $planIdEl.textContent='-'; $planCntEl.textContent='0'; $planMinEl.textContent='0';
+        $list.innerHTML = '<em>해당 날짜 플랜 없음</em>';
+        return;
+      }
+      const plan = plans[0];
+      const r2 = await fetch(`${API}/workoutplans/${plan.id}/`, { headers: getAuthHeaders() });
+      const detail = await r2.json().catch(()=> ({}));
+
+      renderCurrentPlan(detail, d);
+      window.currentPlan = detail; // 위자드/다른 곳에서 재사용
+    }
+
+    function renderCurrentPlan(plan, d){
+      const items = Array.isArray(plan?.tasks) ? plan.tasks : [];
+      const totalMin = Number(plan?.total_duration_min ?? 0);
+
+      $planDateLabel.textContent = fmtISO(d);
+      $planIdEl.textContent  = plan?.id ?? '-';
+      $planCntEl.textContent = plan?.tasks_count ?? items.length;
+      $planMinEl.textContent = totalMin;
+
+      $list.innerHTML = items.length
+        ? items.map(t=>`
+          <div class="task row between" data-id="${t.id}">
+            <div>
+              <b>${t.exercise_detail?.name || t.exercise_name || '(exercise)'}</b>
+              <span class="muted">
+                ${(t.target_sets ?? '-') }x${(t.target_reps ?? '-') }
+                · ${t.intensity ?? '-'} · ${t.duration_min ?? 0}m
+              </span>
+            </div>
+            <div class="row" style="gap:6px;">
+              <button class="btn btn--ghost" data-action="delete">Delete</button>
+            </div>
+          </div>
+        `).join('')
+        : '<em>No tasks yet</em>';
+
+      $list.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+        btn.addEventListener('click', async (e)=>{
+          const id = +e.currentTarget.closest('.task').dataset.id;
+          if (!confirm('삭제할까요?')) return;
+          const r = await fetch(`${API}/taskitems/${id}/`, { method:'DELETE', headers: getAuthHeaders() });
+          if (r.ok || r.status===204) await loadPlanByDate(selectedDate);
+          else alert('삭제 실패');
+        });
+      });
+    }
+
+    // ========= 초기화 =========
+    (function init(){
+      // date input 범위/초기값
+      if ($dateInput){
+        $dateInput.min = fmtISO(RANGE_START);
+        $dateInput.max = fmtISO(RANGE_END);
+        $dateInput.value = fmtISO(TODAY);
+      }
+
+      // 처음 진입: 오늘로 선택 + 로드
+      selectDate(TODAY);
+
+      // 날짜 입력 → 로드
+      $loadByDate?.addEventListener('click', async (e)=>{
+        e.preventDefault();
+        const v = $dateInput?.value;
+        if (!v) return alert('날짜를 선택해 주세요.');
+        selectDate(new Date(v+'T00:00:00'));
+      });
+
+      // 오늘 플랜 보장 + 위자드 열기 (순서: ensure 먼저)
+      $ensureToday?.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const btn = e.currentTarget;
+        btn.disabled = true; // 중복 클릭 방지
+
+        try {
+          // 1) 오늘 날짜 선택(UI 업데이트만)
+          await selectDate(TODAY, { load: false, rerender: true });
+
+          // 2) 오늘 플랜 보장 → ID 확보
+          const res = await fetch(`${API}/workoutplans/today/ensure/`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+          });
+          const plan = await res.json().catch(()=> ({}));
+          if (!res.ok) {
+            alert(plan.detail || 'Failed to ensure today plan.');
+            return;
+          }
+
+          // 3) 전역 현재 플랜 세팅
+          window.currentPlan = plan;
+
+          // 4) 상세 재로딩(Tasks 등 최신)
+          await loadPlanByDate(TODAY);
+
+          // 5) 이제 위자드 열기 (ID 보장된 상태)
+          if (typeof window.openPlanWizard === 'function') window.openPlanWizard();
+        } catch (err) {
+          console.error(err);
+          alert('네트워크 오류로 플랜 생성에 실패했습니다.');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      // Prev/Next (최근 30일 내부)
+      document.getElementById('wk-prev-day')?.addEventListener('click', ()=> selectDate(addDays(selectedDate,-1)));
+      document.getElementById('wk-next-day')?.addEventListener('click', ()=> selectDate(addDays(selectedDate, 1)));
+
+      // 위자드에서 생성 완료 → 오늘/선택일 갱신
+      window.addEventListener('plan:updated', (ev)=>{
+        const plan = ev.detail || {};
+        const created = plan?.created_at ? new Date(plan.created_at) : TODAY;
+        const sameDay = fmtISO(created) === fmtISO(selectedDate);
+        if (sameDay) loadPlanByDate(selectedDate);
+        else if (fmtISO(created) === fmtISO(TODAY)) selectDate(TODAY);
+      });
+    })();
+  </script>
+
+{% endblock %}
