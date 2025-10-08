@@ -1,10 +1,12 @@
+# tasks/models.py
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Exercise(models.Model):
     """운동 종목"""
-    target = models.CharField(max_length=50, verbose_name="대상 부위")  # ← CharField 로 수정
+    target = models.CharField(max_length=50, verbose_name="대상 부위")
     name = models.CharField(max_length=100, verbose_name="이름")
     description = models.TextField(blank=True, verbose_name="설명")
     kcal_burned_per_min = models.FloatField(default=0.0, verbose_name="분당 소모 칼로리")
@@ -40,8 +42,8 @@ class WorkoutPlan(models.Model):
         verbose_name="연계 목표",
     )
     title = models.CharField(max_length=100, verbose_name="제목")
-    description = models.TextField(blank=True, verbose_name="설명")  # 자기회고 저장용으로도 사용
-    summary = models.TextField(blank=True, verbose_name="요약")      # AI 회고 요약 저장
+    description = models.TextField(blank=True, verbose_name="설명")   # 자기회고 저장용
+    summary = models.TextField(blank=True, verbose_name="요약")       # AI 회고 요약
     target_focus = models.CharField(max_length=50, blank=True, verbose_name="중점 영역")
     personalization_snapshot = models.JSONField(
         null=True,
@@ -49,7 +51,12 @@ class WorkoutPlan(models.Model):
         verbose_name="개인화 지표",
         help_text="생성 시점의 체중/BMI/활동량 등 사용자 상태",
     )
-    source = models.CharField(max_length=20, choices=PlanSource.choices, default=PlanSource.MANUAL, verbose_name="생성 출처")
+    source = models.CharField(
+        max_length=20,
+        choices=PlanSource.choices,
+        default=PlanSource.MANUAL,
+        verbose_name="생성 출처",
+    )
     ai_model = models.CharField(max_length=100, blank=True, verbose_name="AI 모델")
     ai_version = models.CharField(max_length=50, blank=True, verbose_name="AI 버전")
     ai_prompt = models.TextField(blank=True, verbose_name="AI 프롬프트")
@@ -90,13 +97,33 @@ class TaskItem(models.Model):
     duration_min = models.PositiveIntegerField(default=0, verbose_name="운동 시간(분)")
     target_sets = models.PositiveIntegerField(null=True, blank=True, verbose_name="목표 세트")
     target_reps = models.PositiveIntegerField(null=True, blank=True, verbose_name="목표 횟수")
-    intensity = models.CharField(max_length=10, choices=IntensityLevel.choices, default=IntensityLevel.MEDIUM, verbose_name="강도")
+    intensity = models.CharField(
+        max_length=10,
+        choices=IntensityLevel.choices,
+        default=IntensityLevel.MEDIUM,
+        verbose_name="강도",
+    )
     notes = models.TextField(blank=True, verbose_name="메모")
     is_ai_recommended = models.BooleanField(default=False, verbose_name="AI 추천 여부")
     ai_goal = models.CharField(max_length=100, blank=True, verbose_name="AI 설정 목표")
     ai_metadata = models.JSONField(null=True, blank=True, verbose_name="AI 메타데이터")
     recommended_weight_range = models.CharField(max_length=50, blank=True, verbose_name="권장 체중 범위")
     order = models.PositiveIntegerField(default=1, verbose_name="순서")
+
+    # ✅ 토글용 상태 필드
+    completed = models.BooleanField(default=False, verbose_name="완료 여부")
+    skipped = models.BooleanField(default=False, verbose_name="스킵 여부")
+    skip_reason = models.CharField(max_length=200, blank=True, null=True, verbose_name="스킵 사유")
+    completed_at = models.DateTimeField(blank=True, null=True, verbose_name="완료 시각")
+
+    def mark_completed(self, value: bool):
+        """편의 메서드: 완료/해제 시 부수 상태 동기화"""
+        self.completed = bool(value)
+        if self.completed:
+            self.skipped = False
+            self.completed_at = timezone.now()
+        else:
+            self.completed_at = None
 
     def __str__(self):
         return f"{self.exercise.name} ({self.duration_min} min)"

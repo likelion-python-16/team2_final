@@ -1,13 +1,14 @@
 # tasks/views.py
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 import json
 
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.db.models import Sum
-from django.db.models.functions import TruncDate
 from django.shortcuts import render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from rest_framework import permissions, viewsets, status
@@ -27,6 +28,12 @@ except Exception:
 from .serializers import ExerciseSerializer, WorkoutPlanSerializer, TaskItemSerializer
 if HAS_WORKOUT_LOG:
     from .serializers import WorkoutLogSerializer
+
+
+# ---- 공통 헬퍼 -------------------------------------------------------------
+def monday_of(d: date) -> date:
+    """ISO Monday(1) 기준: 해당 날짜가 속한 주의 월요일을 반환."""
+    return d - timedelta(days=d.isoweekday() - 1)
 
 
 # ------------------------------
@@ -59,13 +66,14 @@ class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
 # ------------------------------
 # WorkoutPlan
 # - 소유자만 접근
-# - created_at.date 로 오늘/과거 조회
+# - created_at.date 기준 조회
 # - 자기/AI 회고, AI 생성 반영
 # ------------------------------
 class WorkoutPlanViewSet(viewsets.ModelViewSet):
     queryset = WorkoutPlan.objects.all()
     serializer_class = WorkoutPlanSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_value_regex = r"\d+"  # pk를 숫자로 제한 → 액션 경로 pk 오인 방지
 
     def get_queryset(self):
         return WorkoutPlan.objects.filter(user=self.request.user)
@@ -81,21 +89,19 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
             return Response({"detail": "date=YYYY-MM-DD 쿼리 파라미터가 필요합니다."}, status=400)
         plans = (
             self.get_queryset()
-            .annotate(d=TruncDate("created_at"))
-            .filter(d=qd)
+            .filter(created_at__date=qd)
             .order_by("-id")
         )
         ser = self.get_serializer(plans, many=True)
         return Response(ser.data)
 
-    # (선택) GET /workoutplans/today  → 오늘자 플랜 있으면 반환, 없으면 404
+    # GET /workoutplans/today
     @action(detail=False, methods=["get"], url_path="today")
     def today(self, request):
         today_ = date.today()
         plan = (
             self.get_queryset()
-            .annotate(d=TruncDate("created_at"))
-            .filter(d=today_)
+            .filter(created_at__date=today_)
             .order_by("-id")
             .first()
         )
@@ -104,15 +110,12 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(plan).data)
 
     # POST /workoutplans/today/ensure/
-    # 오늘자(created_at.date == today) 플랜이 없으면 생성 후 반환
-    # 새로 생성되었으면 201, 기존이면 200
     @action(detail=False, methods=["post"], url_path="today/ensure")
     def ensure_today(self, request):
         today_ = date.today()
         qs = (
             self.get_queryset()
-            .annotate(d=TruncDate("created_at"))
-            .filter(d=today_)
+            .filter(created_at__date=today_)
             .order_by("-id")
         )
         plan = qs.first()
@@ -131,7 +134,6 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return Response(ser.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     # POST /workoutplans/{id}/self-feedback/
-    # body: {"text": "..."}  → description에 저장
     @action(detail=True, methods=["post"], url_path="self-feedback")
     def self_feedback(self, request, pk=None):
         plan = self.get_object()
@@ -141,7 +143,6 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return Response({"ok": True, "description": plan.description})
 
     # POST /workoutplans/{id}/ai-feedback/
-    # body: {"summary": "...", "meta": {...}} → summary/ai_response 저장
     @action(detail=True, methods=["post"], url_path="ai-feedback")
     def ai_feedback(self, request, pk=None):
         plan = self.get_object()
@@ -154,17 +155,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         plan.save(update_fields=["summary", "ai_response", "updated_at", "last_synced_at"])
         return Response({"ok": True, "summary": plan.summary, "ai_response": plan.ai_response})
 
-    # (선택) POST /workoutplans/{id}/generate-ai/
-    # body:
-    # {
-    #   "title": "Upper Body",
-    #   "target_focus": "chest,shoulders",
-    #   "tasks": [
-    #     {"exercise": 1, "duration_min": 0, "target_sets": 3, "target_reps": 10,
-    #      "intensity":"medium","notes":"warmup","order":1}
-    #   ],
-    #   "ai": {"model":"gpt-x","version":"1","prompt":"...","response":{...},"confidence":0.82}
-    # }
+    # POST /workoutplans/{id}/generate-ai/
     @action(detail=True, methods=["post"], url_path="generate-ai")
     def generate_ai(self, request, pk=None):
         plan = self.get_object()
@@ -186,7 +177,6 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
             ex_id = t.get("exercise")
             if not ex_id:
                 continue
-            # intensity 보정: 'mid' → 'medium' 등
             intensity_value = t.get("intensity") or TaskItem.IntensityLevel.MEDIUM
             if intensity_value == "mid":
                 intensity_value = TaskItem.IntensityLevel.MEDIUM
@@ -216,16 +206,160 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    # POST /workoutplans/copy_week/?source_start=YYYY-MM-DD&target_start=YYYY-MM-DD&overwrite=true|false
+    @action(detail=False, methods=["post"], url_path="copy_week")
+    def copy_week(self, request):
+        """
+        기준 주(월~일)의 계획/할일(TaskItem)을 타깃 주로 복제.
+        WorkoutPlan.created_at의 '날짜' 기준으로 동작 (date 필드 없이 사용 가능)
+        - source_start: YYYY-MM-DD (옵션, 기본: 이번 주 월요일)
+        - target_start: YYYY-MM-DD (옵션, 기본: source_start + 7일)
+        - overwrite: true/false (옵션, 기본 false)
+        """
+        import datetime
+        from django.core.exceptions import FieldError
+
+        user = request.user
+        q = request.query_params
+        overwrite = (q.get("overwrite") or "false").lower() == "true"
+
+        try:
+            # 파라미터 파싱
+            if q.get("source_start"):
+                src0 = monday_of(datetime.date.fromisoformat(q["source_start"]))
+            else:
+                src0 = monday_of(date.today())
+
+            if q.get("target_start"):
+                tgt0 = monday_of(datetime.date.fromisoformat(q["target_start"]))
+            else:
+                tgt0 = src0 + timedelta(days=7)
+
+            src_days = [src0 + timedelta(days=i) for i in range(7)]
+            tgt_days = [tgt0 + timedelta(days=i) for i in range(7)]
+
+            # 소스 주 플랜 수집: created_at__date 기준
+            src_plans = (
+                self.get_queryset()
+                .filter(created_at__date__range=(src0, src0 + timedelta(days=6)))
+                .order_by("created_at", "id")
+            )
+
+            # 같은 날짜의 최신 플랜으로 매핑
+            src_map = {}
+            for p in src_plans:
+                d = p.created_at.date()
+                src_map[d] = p
+
+            created_plans = 0
+            created_items = 0
+            skipped_days = []
+            overwritten_days = []
+
+            with transaction.atomic():
+                for src_day, tgt_day in zip(src_days, tgt_days):
+                    src_plan = src_map.get(src_day)
+                    if not src_plan:
+                        skipped_days.append(tgt_day.isoformat())
+                        continue
+
+                    # 타깃 날짜 플랜 탐색
+                    tgt_plan = (
+                        self.get_queryset()
+                        .filter(created_at__date=tgt_day)
+                        .order_by("-created_at", "-id")
+                        .first()
+                    )
+
+                    if not tgt_plan:
+                        base_title = src_plan.title or f"{src_day.isoformat()} Workout"
+                        tgt_plan = WorkoutPlan.objects.create(
+                            user=user,
+                            title=f"{tgt_day.isoformat()} {base_title}",
+                            description="",
+                            summary="",
+                            target_focus=getattr(src_plan, "target_focus", ""),
+                            source=getattr(src_plan, "source", WorkoutPlan.PlanSource.MANUAL),
+                        )
+                        created_plans += 1
+                    else:
+                        if not overwrite and TaskItem.objects.filter(workout_plan=tgt_plan).exists():
+                            skipped_days.append(tgt_day.isoformat())
+                            continue
+                        if overwrite:
+                            TaskItem.objects.filter(workout_plan=tgt_plan).delete()
+                            overwritten_days.append(tgt_day.isoformat())
+
+                    # --- 소스 아이템 복제 ---
+                    src_items = (
+                        TaskItem.objects.select_related("exercise")
+                        .filter(workout_plan=src_plan)
+                        .order_by("order", "id")
+                    )
+
+                    if not src_items.exists():
+                        skipped_days.append(tgt_day.isoformat())
+                        continue
+
+                    # 모델 필드 존재 집합
+                    taskitem_fields = {f.name for f in TaskItem._meta.get_fields()}
+
+                    clones = []
+                    for it in src_items:
+                        attrs = {
+                            "workout_plan": tgt_plan,
+                            "exercise": it.exercise,
+                            "duration_min": it.duration_min,
+                            "target_sets": getattr(it, "target_sets", None),
+                            "target_reps": getattr(it, "target_reps", None),
+                            "intensity": getattr(it, "intensity", None),
+                            "notes": getattr(it, "notes", ""),
+                            "is_ai_recommended": getattr(it, "is_ai_recommended", False),
+                            "ai_goal": getattr(it, "ai_goal", ""),
+                            "ai_metadata": getattr(it, "ai_metadata", None),
+                            "recommended_weight_range": getattr(it, "recommended_weight_range", ""),
+                            "order": (it.order or 1),
+                        }
+
+                        # 모델에 해당 필드가 있을 때만 초기화
+                        if "completed" in taskitem_fields:
+                            attrs["completed"] = False
+                        if "skipped" in taskitem_fields:
+                            attrs["skipped"] = False
+                        if "skip_reason" in taskitem_fields:
+                            attrs["skip_reason"] = None
+                        if "completed_at" in taskitem_fields:
+                            attrs["completed_at"] = None
+
+                        clones.append(TaskItem(**attrs))
+
+                    TaskItem.objects.bulk_create(clones)
+                    created_items += len(clones)
+
+            return Response({
+                "source_week": {"start": src0.isoformat(), "end": (src0 + timedelta(days=6)).isoformat()},
+                "target_week": {"start": tgt0.isoformat(), "end": (tgt0 + timedelta(days=6)).isoformat()},
+                "created_plans": created_plans,
+                "created_items": created_items,
+                "skipped_days": skipped_days,
+                "overwritten_days": overwritten_days,
+                "overwrite": overwrite,
+            }, status=status.HTTP_200_OK)
+
+        except FieldError as e:
+            return Response({"detail": f"invalid field usage: {e}"}, status=400)
+        except Exception as e:
+            return Response({"detail": f"copy_week failed: {e}"}, status=500)
+
 
 # ------------------------------
-# TaskItem - 계획 내 운동 항목
-#   - workout_plan__user 로 소유권 필터
-#   - 생성/수정 시 계획 소유권 검사
+# TaskItem - 계획 내 운동 항목 (+ 완료/스킵 토글)
 # ------------------------------
 class TaskItemViewSet(viewsets.ModelViewSet):
     queryset = TaskItem.objects.select_related("workout_plan", "exercise").all()
     serializer_class = TaskItemSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_value_regex = r"\d+"  # pk 숫자 제한
 
     def get_queryset(self):
         return TaskItem.objects.select_related("workout_plan", "exercise").filter(
@@ -247,6 +381,150 @@ class TaskItemViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("다른 사용자의 계획으로 이동할 수 없습니다.")
         serializer.save()
 
+    # ✅ POST /taskitems/{id}/toggle-complete/
+    # body: {"value": true|false}
+    @action(detail=True, methods=["post"], url_path="toggle-complete")
+    def toggle_complete(self, request, pk=None):
+        ti = self.get_object()
+        if ti.workout_plan.user_id != request.user.id:
+            raise PermissionDenied("다른 사용자의 항목입니다.")
+
+        field_names = {f.name for f in TaskItem._meta.get_fields()}
+        if "completed" not in field_names or "completed_at" not in field_names or "skipped" not in field_names:
+            return Response(
+                {"detail": "TaskItem 모델에 completed/completed_at/skipped 필드가 필요합니다. 마이그레이션을 적용해주세요."},
+                status=400,
+            )
+
+        val = request.data.get("value")
+        new_val = True if val in (True, "true", "True", 1, "1") else False
+
+        ti.completed = new_val
+        ti.completed_at = timezone.now() if new_val else None
+        if new_val:
+            # 완료되면 스킵 해제
+            ti.skipped = False
+            if "skip_reason" in field_names:
+                ti.skip_reason = None
+        ti.save(update_fields=["completed", "completed_at", "skipped", "updated_at"] if "updated_at" in field_names else ["completed", "completed_at", "skipped"])
+        return Response({"ok": True, "id": ti.id, "completed": ti.completed, "completed_at": ti.completed_at})
+
+    # ✅ POST /taskitems/{id}/toggle-skip/
+    # body: {"value": true|false, "reason": "optional text"}
+    @action(detail=True, methods=["post"], url_path="toggle-skip")
+    def toggle_skip(self, request, pk=None):
+        ti = self.get_object()
+        if ti.workout_plan.user_id != request.user.id:
+            raise PermissionDenied("다른 사용자의 항목입니다.")
+
+        field_names = {f.name for f in TaskItem._meta.get_fields()}
+        if "skipped" not in field_names:
+            return Response({"detail": "TaskItem 모델에 skipped 필드가 필요합니다. 마이그레이션을 적용해주세요."}, status=400)
+
+        val = request.data.get("value")
+        new_val = True if val in (True, "true", "True", 1, "1") else False
+        reason = (request.data.get("reason") or "").strip()
+
+        ti.skipped = new_val
+        # 스킵하면 완료 해제
+        if "completed" in field_names:
+            ti.completed = False
+        if "completed_at" in field_names:
+            ti.completed_at = None
+        if "skip_reason" in field_names:
+            ti.skip_reason = reason if new_val else None
+
+        update_fields = ["skipped"]
+        if "completed" in field_names:
+            update_fields.append("completed")
+        if "completed_at" in field_names:
+            update_fields.append("completed_at")
+        if "skip_reason" in field_names:
+            update_fields.append("skip_reason")
+        if "updated_at" in field_names:
+            update_fields.append("updated_at")
+
+        ti.save(update_fields=update_fields)
+        return Response({
+            "ok": True,
+            "id": ti.id,
+            "skipped": ti.skipped,
+            "skip_reason": getattr(ti, "skip_reason", None),
+        })
+
+    # GET /taskitems/weekly_progress/?start=YYYY-MM-DD
+    @action(detail=False, methods=["get"], url_path="weekly_progress")
+    def weekly_progress(self, request):
+        """
+        주간 TaskItem 집계 + 간단 피드백.
+        ?start=YYYY-MM-DD (옵션, 기본: 이번 주 월요일)
+        WorkoutPlan.created_at의 '날짜' 기준으로 필터링 (date 필드 없이 동작)
+        데이터가 없어도 200 OK와 빈 집계를 반환.
+        """
+        import datetime
+        start_q = request.query_params.get("start")
+        if start_q:
+            start = monday_of(datetime.date.fromisoformat(start_q))
+        else:
+            start = monday_of(date.today())
+        end = start + timedelta(days=6)
+
+        # Datetime → Date 비교 (__date 룩업)
+        items = self.get_queryset().filter(
+            workout_plan__created_at__date__range=(start, end)
+        )
+
+        total = items.count()
+
+        # 필드 존재 여부에 따른 안전 카운트
+        field_names = {f.name for f in TaskItem._meta.get_fields()}
+        has_completed = "completed" in field_names
+        has_skipped = "skipped" in field_names
+
+        done = items.filter(completed=True).count() if has_completed else 0
+        skipped = items.filter(skipped=True).count() if has_skipped else 0
+        rate = (done / total * 100.0) if total else 0.0
+
+        # 일자별 완료 여부 계산
+        day_has_done = {start + timedelta(days=i): False for i in range(7)}
+        if total:
+            if has_completed:
+                qs = items.values_list("workout_plan__created_at", "completed")
+                for dt, c in qs:
+                    d = dt.date()
+                    if start <= d <= end and c:
+                        day_has_done[d] = True
+            else:
+                qs = items.values_list("workout_plan__created_at", flat=True)
+                for dt in qs:
+                    d = dt.date()
+                    if start <= d <= end:
+                        day_has_done[d] = True
+
+        # best streak 계산
+        cur = best = 0
+        for i in range(7):
+            d = start + timedelta(days=i)
+            if day_has_done.get(d, False):
+                cur += 1
+                best = max(best, cur)
+            else:
+                cur = 0
+
+        if rate >= 80:
+            feedback = "아주 좋아요! 이번 주 루틴을 안정적으로 유지했어요. 다음 주엔 난이도를 살짝 올려볼까요?"
+        elif rate >= 50:
+            feedback = "절반 정도 달성! 일정/난이도 재조정이 필요해 보여요. 스킵 사유를 기록해 패턴을 찾아봐요."
+        else:
+            feedback = "이번 주는 어려웠네요. 세션 수를 줄이거나 시간대를 바꿔보는 것을 권장해요."
+
+        return Response({
+            "week": {"start": start.isoformat(), "end": end.isoformat()},
+            "tasks": {"total": total, "completed": done, "skipped": skipped, "completion_rate": round(rate, 1)},
+            "streak": {"best_in_week": best},
+            "feedback": feedback,
+        }, status=status.HTTP_200_OK)
+
 
 # ------------------------------
 # WorkoutLog (선택) - user 기준 필터/주입
@@ -262,7 +540,6 @@ if HAS_WORKOUT_LOG:
             return WorkoutLog.objects.filter(user=self.request.user)
 
         def perform_create(self, serializer):
-            # TaskItem/Plan 소유권은 자연스럽게 연결되지만, 필요하면 더 엄격히 검사 가능
             ti = serializer.validated_data.get("task_item")
             if ti is not None and getattr(ti.workout_plan, "user_id", None) != self.request.user.id:
                 raise PermissionDenied("다른 사용자의 계획/항목에 로그를 추가할 수 없습니다.")
@@ -345,7 +622,7 @@ def dashboard(request):
                 f"{ti.exercise.name} "
                 f"{(str(ti.target_sets)+'x'+str(ti.target_reps)) if (ti.target_sets and ti.target_reps) else ''}"
             ).strip(),
-            "completed": False,  # 완료 체크 별도 없음 → 프론트/로그 집계로 처리
+            "completed": False,
             "type": "workout",
         }
         for ti in recommendations
