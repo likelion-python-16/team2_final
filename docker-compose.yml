@@ -1,12 +1,15 @@
 services:
-  web:
-    build: .
-    container_name: team2_final_web
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: team2/api:dev
+    container_name: team2_final_api
     ports:
       - "8000:8000"
     environment:
       DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,host.docker.internal"
-      DJANGO_DEBUG: "False"          # 배포형이면 False 권장
+      DJANGO_DEBUG: "False"
       DJANGO_TIME_ZONE: "Asia/Seoul"
       DB_ENGINE: "postgres"
       POSTGRES_DB: "team2_final"
@@ -17,14 +20,18 @@ services:
       DJANGO_SETTINGS_MODULE: "team2_final.settings"
       DJANGO_SECRET_KEY: "wLfHydVT0ct0BOkofS6xFwD3uh8tSIV3PxvSAbwFk_2mkRx6J3qUUav2Ji3yEiXkPuVWo9Ud3y6EgHuWIC1kVg"
     volumes:
-      - .:/app
+      - ./api:/app
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    command: >
-      sh -c "python manage.py collectstatic --noinput && python manage.py migrate &&
-             gunicorn team2_final.wsgi:application -b 0.0.0.0:8000 --workers 3 --threads 2 --timeout 60 --chdir /app"
+    command: ["sh","-c","python manage.py collectstatic --noinput && python manage.py migrate && exec gunicorn team2_final.wsgi:application -b 0.0.0.0:8000 --workers 3 --threads 2 --timeout 60 --chdir /app"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
 
   db:
     image: postgres:16
@@ -50,10 +57,22 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # api 디렉토리에 둔 prometheus.yml 사용
+      - ./api/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
-      - web
+      api:
+        condition: service_healthy
     restart: unless-stopped
+
+  # ai:
+  #   build:
+  #     context: ./ai
+  #     dockerfile: Dockerfile
+  #   image: team2/ai:dev
+  #   container_name: team2_final_ai
+  #   ports:
+  #     - "9000:9000"
+  #   restart: unless-stopped
 
 volumes:
   pgdata:

@@ -77,6 +77,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'django_filters',
     "drf_spectacular",
+    'drf_spectacular_sidecar',
 
     # 내 앱들
     'users',
@@ -244,4 +245,10 @@ OAUTH = {
         "ME_URL": "https://openapi.naver.com/v1/nid/me",
         "SCOPE": ["name", "email"],  # 표기는 의미상, 실제는 state 필수
     },
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Team2 Final API',
+    'DESCRIPTION': 'Workout/Meal Tracking API',
+    'VERSION': '0.1.0',
 }

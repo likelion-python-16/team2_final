@@ -5,4 +5,4 @@ scrape_configs:
   - job_name: "django"
     metrics_path: /metrics
     static_configs:
-      - targets: ["web:8001"]   # docker compose 서비스명으로 접근
+      - targets: ["api:8000"]   # 컨테이너 서비스명/포트
