@@ -1,17 +1,45 @@
+{# templates/partials/progress_ring.html #}
 <div class="hover-card" data-hover-card>
-  <div class="hover-card__trigger" data-hover-card-trigger tabindex="0">
-    <div class="progress-ring {{ wrapper_class }}" data-progress="{{ progress|default:0 }}" data-color="{{ color|default:'primary' }}" data-value="{{ value }}">
-      <svg viewBox="0 0 120 120" aria-hidden="true">
+  <div
+    class="hover-card__trigger"
+    data-hover-card-trigger
+    tabindex="0"
+  >
+    <div
+      class="progress-ring {{ wrapper_class|default:'' }}"
+      role="progressbar"
+      aria-label="{{ label|default:'Progress' }}"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      aria-valuenow="{{ progress|default:0 }}"
+      data-progress="{{ progress|default:0 }}"
+      data-color="{{ color|default:'primary' }}"
+      data-value="{{ value|default:'0' }}"
+      style="--pct: {{ progress|default:0 }};"
+    >
+      <svg viewBox="0 0 120 120" aria-hidden="true" focusable="false">
         <circle class="progress-ring__bg" cx="60" cy="60" r="54"></circle>
         <circle class="progress-ring__value-circle" cx="60" cy="60" r="54"></circle>
       </svg>
-      <div class="progress-ring__value-text">{{ value }}</div>
+      <div class="progress-ring__value-text">
+        {{ value|default:'0' }}
+      </div>
+      <span class="sr-only">
+        {{ label|default:'Progress' }}: {{ progress|default:0 }}% complete
+      </span>
     </div>
   </div>
-  <div class="hover-card__content" data-hover-card-content role="status">
-    <p class="hover-card__title">{{ label }}</p>
-    <p class="hover-card__metric">{{ value }}</p>
+
+  <div
+    class="hover-card__content"
+    data-hover-card-content
+    role="status"
+    aria-live="polite"
+  >
+    <p class="hover-card__title">{{ label|default:'Progress' }}</p>
+    <p class="hover-card__metric">{{ value|default:'0' }}</p>
     <p class="hover-card__meta">{{ progress|default:0 }}% complete</p>
   </div>
 </div>
-<p class="progress-ring__caption">{{ label }}</p>
+
+<p class="progress-ring__caption">{{ label|default:'Progress' }}</p>

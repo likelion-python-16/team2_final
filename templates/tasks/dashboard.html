@@ -23,25 +23,75 @@
   <div class="dashboard-divider"></div>
 
   <main class="dashboard-layout">
+
+    <!-- 컬럼 A -->
     <section class="dashboard-column">
+
+      <!-- Today Summary (오늘 합계) -->
+      <article class="dashboard-card dashboard-card--stat">
+        <div class="dashboard-card__heading">
+          <div>
+            <h2>Today Summary</h2>
+            <p class="dashboard-card__sub">운동 · 식단 · 목표 한눈에 보기</p>
+          </div>
+          <span class="badge">Today</span>
+        </div>
+
+        <div class="grid grid--3">
+          <!-- 운동 합계 -->
+          <div class="stat-tile">
+            <div class="stat-tile__label">Workout Minutes</div>
+            <div class="stat-tile__value">
+              {{ today_totals.workout_minutes|default:0 }}<span class="stat-tile__unit"> min</span>
+            </div>
+          </div>
+
+          <!-- 식단 합계 -->
+          <div class="stat-tile">
+            <div class="stat-tile__label">Calories / Macros</div>
+            <div class="stat-tile__value">
+              {{ today_totals.meals.calories|default:0 }}<span class="stat-tile__unit"> kcal</span>
+            </div>
+            <div class="stat-tile__sub">
+              P {{ today_totals.meals.protein|default:0 }}g ·
+              C {{ today_totals.meals.carbs|default:0 }}g ·
+              F {{ today_totals.meals.fat|default:0 }}g
+            </div>
+          </div>
+
+          <!-- 목표 합계 -->
+          <div class="stat-tile">
+            <div class="stat-tile__label">Daily Goals</div>
+            <div class="stat-tile__value">
+              {{ today_totals.goals.completed|default:0 }}<span class="stat-tile__unit"> / </span>{{ today_totals.goals.total|default:0 }}
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <!-- Progress -->
       <article class="dashboard-card dashboard-card--stat" id="progress" data-progress-total="{{ progress_total }}" data-progress-complete="{{ progress_done }}">
         <div class="progress-panel__header">
           <div>
             <h2>Today's Progress</h2>
-            <p class="progress-panel__sub">{{ summary.total_minutes }} min of training · {{ summary.active_plans }} active plans</p>
+            <p class="progress-panel__sub">
+              {{ summary.total_minutes }} min of training · {{ summary.active_plans }} active plans
+            </p>
           </div>
           <div class="progress-panel__complete">
             <span class="progress-panel__percent" id="progressPercent">{{ progress_complete }}%</span>
             <span class="progress-panel__caption">Complete</span>
           </div>
         </div>
+
         <div class="progress-ring-row" id="progressRings">
           {% for item in progress_cards %}
-          <div class="progress-ring-wrap progress-ring-wrap--{{ item.color }}">
-            {% include "partials/progress_ring.html" with wrapper_class="progress-ring--mini" progress=item.render_percent value=item.render_value label=item.label color=item.color %}
+            <div class="progress-ring-wrap progress-ring-wrap--{{ item.color }}">
+              {% include "partials/progress_ring.html" with wrapper_class="progress-ring--mini" progress=item.render_percent value=item.render_value label=item.label color=item.color %}
             </div>
           {% endfor %}
         </div>
+
         <div class="progress-goal">
           <div class="progress-goal__bar"><span id="progressGoalFill" style="width: 0%"></span></div>
           <p class="progress-goal__text" id="progressGoalLabel">
@@ -53,6 +103,7 @@
         </div>
       </article>
 
+      <!-- Daily Tasks -->
       <article class="premium-card task-card" id="tasks">
         <div class="task-card__header">
           <div>
@@ -73,21 +124,13 @@
             </button>
           </div>
         </div>
+
         <ul class="task-card__list" id="dailyTasks">
           {% for task in daily_tasks %}
             <li class="task-card__item{% if task.completed %} is-complete{% endif %}" data-task-type="{{ task.type }}" data-completed="{{ task.completed|yesno:'true,false' }}">
               <label class="task-card__toggle">
-                <input
-                  type="checkbox"
-                  class="task-card__input"
-                  data-task-checkbox
-                  {% if task.completed %}checked{% endif %}
-                >
-                <span
-                  class="task-card__checkbox"
-                  data-state="{% if task.completed %}checked{% else %}unchecked{% endif %}"
-                  aria-hidden="true"
-                >
+                <input type="checkbox" class="task-card__input" data-task-checkbox {% if task.completed %}checked{% endif %}>
+                <span class="task-card__checkbox" data-state="{% if task.completed %}checked{% else %}unchecked{% endif %}" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false">
                     <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" />
                   </svg>
@@ -100,6 +143,7 @@
         </ul>
       </article>
 
+      <!-- AI Insights -->
       <article class="dashboard-card" id="insights">
         <div class="dashboard-card__heading">
           <div>
@@ -123,7 +167,10 @@
       </article>
     </section>
 
+    <!-- 컬럼 B -->
     <section class="dashboard-column">
+
+      <!-- Recommendations -->
       <article class="dashboard-card" id="recommend">
         <div class="dashboard-card__heading">
           <div>
@@ -146,6 +193,7 @@
         </ul>
       </article>
 
+      <!-- Quick Actions -->
       <article class="premium-card quick-actions-card">
         <div class="quick-actions__header">
           <h3>Quick Actions</h3>
@@ -174,6 +222,7 @@
         </div>
       </article>
 
+      <!-- Nutrition Upload -->
       <article class="dashboard-card">
         <div class="dashboard-card__heading">
           <div>

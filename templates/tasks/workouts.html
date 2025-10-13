@@ -133,10 +133,22 @@
     // ========= 공통 =========
     const API = window.API || "/api";
 
-    // 🔐 안전한 헤더 래퍼: window.authHeaders 있으면 그걸 쓰고, 없으면 기본 헤더 사용
+    // CSRF 토큰 읽기
+    function getCookie(name){
+      const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+      return m ? m.pop() : '';
+    }
+
+    // 🔐 안전한 헤더 래퍼: window.authHeaders 있으면 그걸 쓰고, 없으면 기본 헤더 + CSRF 사용
     const getAuthHeaders = (() => {
       const base = (typeof window.authHeaders === 'function') ? window.authHeaders.bind(window) : null;
-      return () => base ? base() : { 'Content-Type': 'application/json' };
+      return () => {
+        if (base) return base();
+        const h = { 'Content-Type': 'application/json' };
+        const csrf = getCookie('csrftoken');
+        if (csrf) h['X-CSRFToken'] = csrf;
+        return h;
+      };
     })();
 
     // ========= 날짜 유틸 (KST 기준) =========
@@ -148,28 +160,28 @@
 
     // ========= 상태 =========
     const TODAY = startOfDayKST(new Date());
-    const RANGE_START = addDays(TODAY, -29); // 최근 30일
+    const RANGE_START = addDays(TODAY, -59); // ✅ 최근 60일(2달)로 확장
     const RANGE_END   = TODAY;
 
     let selectedDate = TODAY; // 현재 선택된 날짜
 
     // ========= DOM =========
-    const $daysWrap = document.getElementById('wk-days');
-    const $dateInput = document.getElementById('wk-plan-date');
-    const $loadByDate = document.getElementById('wk-load-by-date');
-    const $ensureToday = document.getElementById('wk-ensure-today');
-    const $label = document.getElementById('wk-current-label');
+    const $daysWrap      = document.getElementById('wk-days');
+    const $dateInput     = document.getElementById('wk-plan-date');
+    const $loadByDate    = document.getElementById('wk-load-by-date');
+    const $ensureToday   = document.getElementById('wk-ensure-today');
+    const $label         = document.getElementById('wk-current-label');
 
     const $planDateLabel = document.getElementById('wk-plan-date-label');
-    const $planIdEl  = document.getElementById('wk-plan-id');
-    const $planCntEl = document.getElementById('wk-plan-taskcount');
-    const $planMinEl = document.getElementById('wk-plan-duration');
-    const $list      = document.getElementById('wk-tasks-list');
+    const $planIdEl      = document.getElementById('wk-plan-id');
+    const $planCntEl     = document.getElementById('wk-plan-taskcount');
+    const $planMinEl     = document.getElementById('wk-plan-duration');
+    const $list          = document.getElementById('wk-tasks-list');
 
     // ========= 주(월→일) 버튼 렌더 =========
     function startOfWeekMon(d){
       const wd = d.getDay(); // 0=일
-      const diff = wd === 0 ? -6 : (1 - wd); // 월=1
+      const diff = (wd === 0) ? -6 : (1 - wd); // 월=1
       return addDays(d, diff);
     }
 
@@ -218,37 +230,81 @@
       if (opts.load) await loadPlanByDate(selectedDate);
     }
 
-    // ========= 플랜 로딩 & 렌더 =========
+    // ========= 날짜별 TaskItem 조회 (serializer에 tasks 없어도 OK) =========
+    async function fetchDayItems(iso){
+      const r = await fetch(`${API}/taskitems/?date=${encodeURIComponent(iso)}`, {
+        headers: getAuthHeaders(),
+        credentials: 'same-origin',
+      });
+      if (!r.ok) return [];
+      const data = await r.json().catch(()=>[]);
+      return Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+    }
+
+    // ========= 플랜 로딩 & 렌더 (안전 버전) =========
     async function loadPlanByDate(d){
       const iso = fmtISO(d);
-      // by-date → 첫 번째 플랜 → 상세
+
+      // 1) 해당 날짜의 플랜 찾기 (여러 개면 첫 번째 사용)
       const r = await fetch(`${API}/workoutplans/by-date/?date=${encodeURIComponent(iso)}`, {
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
+        credentials: 'same-origin',
       });
       const data = await r.json().catch(()=>[]);
       const plans = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
+
+      // 2) 해당 날짜 TaskItem 직접 조회
+      const items = await fetchDayItems(iso);
+
+      // 라벨 업데이트
+      $planDateLabel.textContent = iso;
+
       if (!r.ok || !plans.length){
-        $planDateLabel.textContent = `${iso}`;
-        $planIdEl.textContent='-'; $planCntEl.textContent='0'; $planMinEl.textContent='0';
-        $list.innerHTML = '<em>해당 날짜 플랜 없음</em>';
+        // 플랜이 없어도 TaskItem이 있으면 그것만 표시
+        $planIdEl.textContent  = '-';
+        $planCntEl.textContent = items.length.toString();
+        $planMinEl.textContent = items.reduce((s,x)=> s + (Number(x.duration_min)||0), 0).toString();
+
+        $list.innerHTML = items.length
+          ? items.map(t=>`
+              <div class="task row between" data-id="${t.id}">
+                <div>
+                  <b>${t.exercise_detail?.name || t.exercise_name || '(exercise)'}</b>
+                  <span class="muted">
+                    ${(t.target_sets ?? '-') }x${(t.target_reps ?? '-') }
+                    · ${t.intensity ?? '-'} · ${t.duration_min ?? 0}m
+                  </span>
+                </div>
+              </div>
+            `).join('')
+          : '<em>해당 날짜 플랜/항목 없음</em>';
+
+        window.currentPlan = undefined;
         return;
       }
-      const plan = plans[0];
-      const r2 = await fetch(`${API}/workoutplans/${plan.id}/`, { headers: getAuthHeaders() });
-      const detail = await r2.json().catch(()=> ({}));
 
-      renderCurrentPlan(detail, d);
-      window.currentPlan = detail; // 위자드/다른 곳에서 재사용
+      // 3) 플랜 1개 선택
+      const plan = plans[0];
+      window.currentPlan = plan; // ID만 있어도 충분
+
+      // 4) 라벨/카운트/합계 및 렌더
+      const totalMin = (plan.total_duration_min != null)
+        ? Number(plan.total_duration_min)
+        : items.reduce((s,x)=> s + (Number(x.duration_min)||0), 0);
+
+      renderCurrentPlan(
+        { id: plan.id, tasks: items, tasks_count: items.length, total_duration_min: totalMin },
+        d
+      );
     }
 
-    function renderCurrentPlan(plan, d){
-      const items = Array.isArray(plan?.tasks) ? plan.tasks : [];
-      const totalMin = Number(plan?.total_duration_min ?? 0);
-
+    // ========= 렌더 =========
+    function renderCurrentPlan(planLike, d){
+      const items = Array.isArray(planLike?.tasks) ? planLike.tasks : [];
       $planDateLabel.textContent = fmtISO(d);
-      $planIdEl.textContent  = plan?.id ?? '-';
-      $planCntEl.textContent = plan?.tasks_count ?? items.length;
-      $planMinEl.textContent = totalMin;
+      $planIdEl.textContent      = planLike?.id ?? '-';
+      $planCntEl.textContent     = planLike?.tasks_count ?? items.length;
+      $planMinEl.textContent     = planLike?.total_duration_min ?? items.reduce((s,x)=> s + (Number(x.duration_min)||0), 0);
 
       $list.innerHTML = items.length
         ? items.map(t=>`
@@ -267,20 +323,28 @@
         `).join('')
         : '<em>No tasks yet</em>';
 
+      // 삭제 동작(플랜 ID 없이도 task id만 있으면 가능)
       $list.querySelectorAll('[data-action="delete"]').forEach(btn=>{
         btn.addEventListener('click', async (e)=>{
           const id = +e.currentTarget.closest('.task').dataset.id;
           if (!confirm('삭제할까요?')) return;
-          const r = await fetch(`${API}/taskitems/${id}/`, { method:'DELETE', headers: getAuthHeaders() });
+          const r = await fetch(`${API}/taskitems/${id}/`, {
+            method:'DELETE',
+            headers: getAuthHeaders(),
+            credentials: 'same-origin',
+          });
           if (r.ok || r.status===204) await loadPlanByDate(selectedDate);
           else alert('삭제 실패');
         });
       });
+
+      // 다른 스크립트에서 재사용할 수 있게 노출
+      window.renderCurrentPlan = renderCurrentPlan;
     }
 
     // ========= 초기화 =========
     (function init(){
-      // date input 범위/초기값
+      // date input 범위/초기값 (✅ 60일 범위 반영)
       if ($dateInput){
         $dateInput.min = fmtISO(RANGE_START);
         $dateInput.max = fmtISO(RANGE_END);
@@ -312,6 +376,7 @@
           const res = await fetch(`${API}/workoutplans/today/ensure/`, {
             method: 'POST',
             headers: getAuthHeaders(),
+            credentials: 'same-origin',
           });
           const plan = await res.json().catch(()=> ({}));
           if (!res.ok) {
@@ -335,11 +400,11 @@
         }
       });
 
-      // Prev/Next (최근 30일 내부)
+      // Prev/Next (✅ 최근 60일 내부)
       document.getElementById('wk-prev-day')?.addEventListener('click', ()=> selectDate(addDays(selectedDate,-1)));
       document.getElementById('wk-next-day')?.addEventListener('click', ()=> selectDate(addDays(selectedDate, 1)));
 
-      // 위자드에서 생성 완료 → 오늘/선택일 갱신
+      // 위자드에서 생성 완료 → 오늘/선택일 갱신(이미 plan_wizard에서 plan:updated 이벤트 쏨)
       window.addEventListener('plan:updated', (ev)=>{
         const plan = ev.detail || {};
         const created = plan?.created_at ? new Date(plan.created_at) : TODAY;
@@ -349,5 +414,4 @@
       });
     })();
   </script>
-
 {% endblock %}

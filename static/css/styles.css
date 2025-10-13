@@ -1750,3 +1750,9 @@ body {
 /* 버튼 간격 */
 #plan-wizard .wizard-actions .btn,
 #plan-wizard [data-actions] .btn{ margin-right: 8px; }
+
+.progress-ring__value-circle {
+  stroke-dasharray: 339.292;
+  stroke-dashoffset: calc(339.292 * (1 - (var(--pct, 0) / 100)));
+  transition: stroke-dashoffset .6s ease, stroke .3s ease;
+}

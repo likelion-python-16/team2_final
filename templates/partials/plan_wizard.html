@@ -99,10 +99,21 @@
     const $params  = document.getElementById('pw-params');
     const $picked  = document.getElementById('pw-picked-target');
 
+    /* === CSRF: 쿠키에서 가져와 헤더 세팅 === */
+    function getCookie(name){
+      const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+      return m ? m.pop() : '';
+    }
+
     /* === authHeaders 안전 래퍼 (없어도 동작하도록) === */
     const _authHeaders = (typeof window.authHeaders === 'function')
       ? window.authHeaders
-      : () => ({ 'Content-Type': 'application/json' });
+      : () => {
+          const headers = { 'Content-Type': 'application/json' };
+          const csrf = getCookie('csrftoken');
+          if (csrf) headers['X-CSRFToken'] = csrf;
+          return headers;
+        };
 
     /* === 모달을 body 직속으로 옮겨 inert 영향 제거 === */
     if ($modal && $modal.parentElement !== document.body) {
@@ -125,8 +136,8 @@
 
     /* ========= 열기 ========= */
     function openPlanWizard() {
-      if (!window.currentPlan.id) {
-        alert('오늘 플랜을 먼저 생성해 주세요. 상단의 "Generate New Plan" 버튼을 눌러 플랜을 보장한 뒤 진행하세요.');
+      if (!window.currentPlan || !window.currentPlan.id) {
+        alert('오늘 플랜을 먼저 생성해 주세요. 상단의 "Generate New Plan" 버튼으로 보장하세요.');
         return;
       }
       // 1) 현재 포커스 저장
@@ -154,7 +165,7 @@
       loadTargets();
     }
 
-    /* ========= 닫기 (경고 해결 버전) ========= */
+    /* ========= 닫기 ========= */
     function closePlanWizard() {
       // 현재 활성 요소가 모달 내부면 먼저 블러
       const active = document.activeElement;
@@ -198,7 +209,10 @@
     async function loadTargets() {
       $targets.textContent = 'Loading...';
       try {
-        const res = await fetch(`${API}/exercises/targets/`, { headers: _authHeaders() });
+        const res = await fetch(`${API}/exercises/targets/`, {
+          headers: _authHeaders(),
+          credentials: 'same-origin',
+        });
         if (res.status === 401) { $targets.innerHTML = '로그인이 필요합니다'; return; }
         const data = await res.json();
         const targets = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
@@ -219,7 +233,10 @@
       document.getElementById('step-exercises').style.display = '';
       $exList.innerHTML = 'Loading...';
       try {
-        const res = await fetch(`${API}/exercises/?target=${encodeURIComponent(target)}`, { headers: _authHeaders() });
+        const res = await fetch(`${API}/exercises/?target=${encodeURIComponent(target)}`, {
+          headers: _authHeaders(),
+          credentials: 'same-origin',
+        });
         if (res.status === 401) { $exList.innerHTML = '로그인이 필요합니다'; return; }
         const data = await res.json();
         const items = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
@@ -270,7 +287,7 @@
       `).join('');
     }
 
-    /* ========= 4) TaskItem 생성 → 새로고침 ========= */
+    /* ========= 4) TaskItem 생성 → 화면 갱신 ========= */
     document.getElementById('btn-create-tasks')?.addEventListener('click', async () => {
       if (!window.currentPlan) return alert('Plan not loaded. 먼저 플랜을 생성/불러오세요.');
       const groups = Array.from($params.querySelectorAll('fieldset'));
@@ -299,7 +316,8 @@
           const r = await fetch(`${API}/taskitems/`, {
             method: 'POST',
             headers: _authHeaders(),
-            body: JSON.stringify(body)
+            credentials: 'same-origin',
+            body: JSON.stringify(body),
           });
           if (r.ok) ok++; else fail++;
         } catch { fail++; }
@@ -307,19 +325,22 @@
       alert(`Created ${ok}/${payloads.length} tasks`);
 
       if (ok) {
-        closePlanWizard();
+        // 상세 재조회 후 이벤트로 알림(워크아웃 페이지가 이미 plan:updated를 리슨)
         try {
           if (window.currentPlan?.id) {
-            const r = await fetch(`${API}/workoutplans/${window.currentPlan.id}/`, { headers: _authHeaders() });
+            const r = await fetch(`${API}/workoutplans/${window.currentPlan.id}/`, {
+              headers: _authHeaders(),
+              credentials: 'same-origin',
+            });
             if (r.ok) {
               const detail = await r.json();
               window.currentPlan = detail;
-              if (window.renderCurrentPlan) window.renderCurrentPlan(detail);
-              if (window.renderTasks) window.renderTasks(detail);
+              window.dispatchEvent(new CustomEvent('plan:updated', { detail }));
             }
           }
-        } catch (e) {
-        }
+        } catch (e) { /* noop */ }
+
+        closePlanWizard();
       }
     });
 
@@ -327,9 +348,16 @@
     const btnEnsure = document.getElementById('wk-ensure-today');
     if (btnEnsure) {
       btnEnsure.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (typeof window.openPlanWizard !== 'function') openPlanWizard();
+        // workouts.html에서 ensure → load → open 순서로 열지만,
+        // 혹시 직접 호출되는 경우를 대비한 백업 훅
+        if (typeof window.openPlanWizard !== 'function') {
+          e.preventDefault();
+          openPlanWizard();
+        }
       });
     }
+
+    // 외부에서 직접 닫을 수 있도록 노출(옵션)
+    window.closePlanWizard = closePlanWizard;
   })();
 </script>
