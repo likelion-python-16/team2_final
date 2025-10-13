@@ -5,7 +5,7 @@ import json
 
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
@@ -34,6 +34,14 @@ if HAS_WORKOUT_LOG:
 def monday_of(d: date) -> date:
     """ISO Monday(1) 기준: 해당 날짜가 속한 주의 월요일을 반환."""
     return d - timedelta(days=d.isoweekday() - 1)
+
+
+def _has_field(model_cls, field_name: str) -> bool:
+    try:
+        model_cls._meta.get_field(field_name)
+        return True
+    except Exception:
+        return False
 
 
 # ------------------------------
@@ -66,7 +74,7 @@ class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
 # ------------------------------
 # WorkoutPlan
 # - 소유자만 접근
-# - created_at.date 기준 조회
+# - 날짜 필터: plan.date / plan.log_date / logs.date / logs.log_date / created_at__date 순으로 시도
 # - 자기/AI 회고, AI 생성 반영
 # ------------------------------
 class WorkoutPlanViewSet(viewsets.ModelViewSet):
@@ -74,24 +82,59 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
     serializer_class = WorkoutPlanSerializer
     permission_classes = [permissions.IsAuthenticated]
     lookup_value_regex = r"\d+"  # pk를 숫자로 제한 → 액션 경로 pk 오인 방지
+    ordering = ("-id",)
+
+    # date/log_date 둘 다 허용
+    def _get_date_param(self):
+        qp = self.request.query_params
+        return qp.get("log_date") or qp.get("date")
+
+    def _with_date_filter(self, qs):
+        """여러 후보 경로로 날짜 필터링. 첫 번째로 결과가 있는 조건을 사용."""
+        d = self._get_date_param()
+        if not d:
+            return qs
+        tried = []
+
+        # 모델 필드 존재 시도
+        if _has_field(WorkoutPlan, "date"):
+            tried.append(Q(date=d))
+        if _has_field(WorkoutPlan, "log_date"):
+            tried.append(Q(log_date=d))
+
+        # WorkoutLog가 있고 해당 필드가 있으면 시도
+        if HAS_WORKOUT_LOG:
+            if _has_field(WorkoutLog, "date"):
+                tried.append(Q(workout_logs__date=d))
+            if _has_field(WorkoutLog, "log_date"):
+                tried.append(Q(workout_logs__log_date=d))
+
+        # 마지막으로 생성일의 날짜 부분
+        tried.append(Q(created_at__date=d))
+
+        # 첫 번째로 결과가 존재하는 조건 채택
+        for cond in tried:
+            tmp = qs.filter(cond).distinct()
+            if tmp.exists():
+                return tmp
+        return qs.none()
 
     def get_queryset(self):
-        return WorkoutPlan.objects.filter(user=self.request.user)
+        qs = WorkoutPlan.objects.filter(user=self.request.user)
+        # 목록에서도 ?date= / ?log_date= 허용
+        qs = self._with_date_filter(qs)
+        return qs.order_by(*self.ordering)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-    # GET /workoutplans/by-date/?date=YYYY-MM-DD
+    # GET /workoutplans/by-date/?date=YYYY-MM-DD (또는 log_date=)
     @action(detail=False, methods=["get"], url_path="by-date")
     def by_date(self, request):
-        qd = request.query_params.get("date")
-        if not qd:
+        d = self._get_date_param()
+        if not d:
             return Response({"detail": "date=YYYY-MM-DD 쿼리 파라미터가 필요합니다."}, status=400)
-        plans = (
-            self.get_queryset()
-            .filter(created_at__date=qd)
-            .order_by("-id")
-        )
+        plans = self.get_queryset().order_by("id")
         ser = self.get_serializer(plans, many=True)
         return Response(ser.data)
 
@@ -99,10 +142,10 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="today")
     def today(self, request):
         today_ = date.today()
+        # today는 created_at__date 우선 사용
         plan = (
-            self.get_queryset()
-            .filter(created_at__date=today_)
-            .order_by("-id")
+            WorkoutPlan.objects.filter(user=request.user, created_at__date=today_)
+            .order_by("-created_at", "-id")
             .first()
         )
         if not plan:
@@ -113,11 +156,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"], url_path="today/ensure")
     def ensure_today(self, request):
         today_ = date.today()
-        qs = (
-            self.get_queryset()
-            .filter(created_at__date=today_)
-            .order_by("-id")
-        )
+        qs = WorkoutPlan.objects.filter(user=request.user, created_at__date=today_).order_by("-id")
         plan = qs.first()
         created = False
         if not plan:
@@ -240,7 +279,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
 
             # 소스 주 플랜 수집: created_at__date 기준
             src_plans = (
-                self.get_queryset()
+                WorkoutPlan.objects.filter(user=user)
                 .filter(created_at__date__range=(src0, src0 + timedelta(days=6)))
                 .order_by("created_at", "id")
             )
@@ -265,7 +304,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
 
                     # 타깃 날짜 플랜 탐색
                     tgt_plan = (
-                        self.get_queryset()
+                        WorkoutPlan.objects.filter(user=user)
                         .filter(created_at__date=tgt_day)
                         .order_by("-created_at", "-id")
                         .first()
@@ -360,11 +399,17 @@ class TaskItemViewSet(viewsets.ModelViewSet):
     serializer_class = TaskItemSerializer
     permission_classes = [permissions.IsAuthenticated]
     lookup_value_regex = r"\d+"  # pk 숫자 제한
+    ordering = ("-id",)
 
     def get_queryset(self):
-        return TaskItem.objects.select_related("workout_plan", "exercise").filter(
+        qs = TaskItem.objects.select_related("workout_plan", "exercise").filter(
             workout_plan__user=self.request.user
         )
+        # 주간 집계와 일관성 위해 ?date 필터도 허용
+        d = self.request.query_params.get("date") or self.request.query_params.get("log_date")
+        if d:
+            qs = qs.filter(workout_plan__created_at__date=d)
+        return qs.order_by(*self.ordering)
 
     def perform_create(self, serializer):
         plan = serializer.validated_data.get("workout_plan")
@@ -735,7 +780,7 @@ def meals(request):
 
     return render(
         request,
-        "tasks/meals.html",
+        'tasks/meals.html',
         {
             "nutrition_summary": nutrition_summary,
             "todays_meals": todays_meals,

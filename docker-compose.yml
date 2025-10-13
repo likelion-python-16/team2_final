@@ -1,8 +1,8 @@
 services:
   api:
     build:
-      context: ./api
-      dockerfile: Dockerfile
+      context: .               # ✅ 루트 기준 (./)
+      dockerfile: Dockerfile   # ✅ Dockerfile도 루트에 있어야 함
     image: team2/api:dev
     container_name: team2_final_api
     ports:
@@ -20,12 +20,16 @@ services:
       DJANGO_SETTINGS_MODULE: "team2_final.settings"
       DJANGO_SECRET_KEY: "wLfHydVT0ct0BOkofS6xFwD3uh8tSIV3PxvSAbwFk_2mkRx6J3qUUav2Ji3yEiXkPuVWo9Ud3y6EgHuWIC1kVg"
     volumes:
-      - ./api:/app
+      - ./:/app                # ✅ 루트 전체 마운트
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    command: ["sh","-c","python manage.py collectstatic --noinput && python manage.py migrate && exec gunicorn team2_final.wsgi:application -b 0.0.0.0:8000 --workers 3 --threads 2 --timeout 60 --chdir /app"]
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             exec gunicorn team2_final.wsgi:application -b 0.0.0.0:8000
+             --workers 3 --threads 2 --timeout 60 --chdir /app"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
       interval: 10s
@@ -57,22 +61,12 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      # api 디렉토리에 둔 prometheus.yml 사용
-      - ./api/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # prometheus.yml 위치 확인 후 맞게 경로 조정
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
-
-  # ai:
-  #   build:
-  #     context: ./ai
-  #     dockerfile: Dockerfile
-  #   image: team2/ai:dev
-  #   container_name: team2_final_ai
-  #   ports:
-  #     - "9000:9000"
-  #   restart: unless-stopped
 
 volumes:
   pgdata:
