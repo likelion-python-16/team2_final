@@ -1,5 +1,7 @@
+# feedbacks/models.py
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class Feedback(models.Model):
@@ -52,6 +54,27 @@ class Feedback(models.Model):
     class Meta:
         verbose_name = "피드백"
         verbose_name_plural = "피드백 목록"
+        ordering = ("-created_at",)
+        # ⚠️ PostgreSQL에서만 동작하는 부분 유니크(WHERE source='ai')
+        constraints = [
+            models.CheckConstraint(
+                name="feedback_ai_confidence_range",
+                check=Q(ai_confidence__isnull=True) | Q(ai_confidence__gte=0.0, ai_confidence__lte=100.0),
+            ),
+            models.CheckConstraint(
+                name="feedback_sentiment_range",
+                check=Q(sentiment_score__isnull=True) | Q(sentiment_score__gte=-1.0, sentiment_score__lte=1.0),
+            ),
+            models.UniqueConstraint(
+                fields=("daily_report", "source"),
+                condition=Q(source="ai"),
+                name="uniq_ai_feedback_per_report",  # 하루 1개 AI 피드백 보장
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("user", "created_at"), name="fb_user_created_idx"),
+            models.Index(fields=("daily_report",), name="fb_daily_report_idx"),
+        ]
 
 
 class DailyReport(models.Model):
@@ -93,6 +116,20 @@ class DailyReport(models.Model):
     class Meta:
         verbose_name = "일간 리포트"
         verbose_name_plural = "일간 리포트 목록"
+        ordering = ("-date", "-id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "date"),
+                name="unique_daily_report_per_user_date",  # 사용자+날짜 1건 보장
+            ),
+            models.CheckConstraint(
+                name="dailyreport_score_range",
+                check=Q(score__isnull=True) | Q(score__gte=0.0, score__lte=100.0),
+            ),
+        ]
+        indexes = [
+            models.Index(fields=("user", "date"), name="dr_user_date_idx"),
+        ]
 
 
 class Achievement(models.Model):
@@ -124,6 +161,10 @@ class Achievement(models.Model):
     class Meta:
         verbose_name = "달성도"
         verbose_name_plural = "달성도 목록"
+        ordering = ("-achieved_at",)
+        indexes = [
+            models.Index(fields=("user", "achieved_at"), name="ach_user_time_idx"),
+        ]
 
 
 class FeedbackGenerationLog(models.Model):
@@ -156,3 +197,7 @@ class FeedbackGenerationLog(models.Model):
     class Meta:
         verbose_name = "피드백 생성 로그"
         verbose_name_plural = "피드백 생성 로그 목록"
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=("feedback", "created_at"), name="fgl_fb_time_idx"),
+        ]

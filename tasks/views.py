@@ -1,13 +1,13 @@
 # tasks/views.py
 from __future__ import annotations
 
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta
 from pathlib import Path
 import json
-from typing import Optional, Iterable
+from typing import Optional
 
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import FieldError, ValidationError
+from django.core.exceptions import FieldError
 from django.db import transaction
 from django.db.models import Sum, Q
 from django.shortcuts import render
@@ -72,10 +72,7 @@ class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
     ordering_fields = ("name", "target")
 
     def get_queryset(self):
-        qs = (
-            Exercise.objects.select_related()
-            .all()
-        )
+        qs = Exercise.objects.all()
         target = self.request.query_params.get("target")
         if target:
             qs = qs.filter(target=target)
@@ -112,45 +109,34 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return parse_iso_date(qp.get("log_date") or qp.get("date"))
 
     def _with_date_filter(self, qs):
-        """여러 후보 경로로 날짜 필터링. 첫 번째로 결과가 있는 조건을 사용."""
+        """여러 후보 경로로 날짜 필터링. 첫 번째로 결과가 있는 조건을 사용.
+        ※ WorkoutLog 역참조는 프로젝트마다 달라 500을 유발할 수 있으므로 제외
+        """
         d = self._get_date_param()
         if not d:
             return qs
 
-        tried: list[Q] = []
-
-        # 모델 필드 존재 시도
+        tried = []
+        # 1) 모델에 해당 날짜 필드가 있을 때만 시도
         if _has_field(WorkoutPlan, "date"):
             tried.append(Q(date=d))
         if _has_field(WorkoutPlan, "log_date"):
             tried.append(Q(log_date=d))
-
-        # WorkoutLog가 있고 해당 필드가 있으면 시도
-        if HAS_WORKOUT_LOG:
-            if _has_field(WorkoutLog, "date"):
-                tried.append(Q(workout_logs__date=d))
-            if _has_field(WorkoutLog, "log_date"):
-                tried.append(Q(workout_logs__log_date=d))
-
-        # 마지막으로 생성일의 날짜 부분
+        # 2) 최종 폴백: 생성일의 날짜 부분
         tried.append(Q(created_at__date=d))
 
-        # 첫 번째로 결과가 존재하는 조건 채택
+        # 첫 번째로 결과가 존재하는 조건 채택 (필드 에러 방어)
         for cond in tried:
-            tmp = qs.filter(cond).distinct()
+            try:
+                tmp = qs.filter(cond).distinct()
+            except FieldError:
+                continue
             if tmp.exists():
                 return tmp
         return qs.none()
 
     def get_queryset(self):
-        # 소유자 제한 + 관련 항목 미리패치
-        qs = (
-            WorkoutPlan.objects.filter(user=self.request.user)
-            .prefetch_related(
-                "taskitem_set__exercise"  # 최근 플랜/추천 구성에 사용
-            )
-        )
-        # 목록에서도 ?date= / ?log_date= 허용
+        qs = WorkoutPlan.objects.filter(user=self.request.user)
         qs = self._with_date_filter(qs)
         return qs.order_by(*self.ordering)
 
@@ -163,14 +149,43 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         d = self._get_date_param()
         if not d:
             return Response({"detail": "date=YYYY-MM-DD 쿼리 파라미터가 필요합니다."}, status=400)
-        plans = self.get_queryset().order_by("id")
-        ser = self.get_serializer(plans, many=True)
-        return Response(ser.data)
+        base = WorkoutPlan.objects.filter(user=request.user)
+        
+        # 1차: 기존 후보 경로(date/log_date/logs/created_at__date)로 필터
+        qs1 = self._with_date_filter(base)
+        debug = {
+            "requested_date": d.isoformat(),
+            "server_now": timezone.now().isoformat(),
+            "server_today": timezone.localdate().isoformat(),
+            "match1_count": qs1.count(),
+        }
+        qs = qs1
+        match_strategy = "primary"
+        # 2차: 0건이면 created_at__date in {d-1, d, d+1} 완화 매칭
+        if not qs.exists():
+            from datetime import timedelta
+            around = [d - timedelta(days=1), d, d + timedelta(days=1)]
+            qs2 = base.filter(created_at__date__in=around).order_by("id")
+            debug.update({"match2_candidates": [x.isoformat() for x in around], "match2_count": qs2.count()})
+            if qs2.exists():
+                qs = qs2
+                match_strategy = "around"
+        # 3차: 그래도 없으면 최신 1건 폴백
+        if not qs.exists():
+            qs3 = base.order_by("-created_at", "-id")[:1]
+            debug["match3_count"] = qs3.count()
+            qs = qs3
+            match_strategy = "latest"
+
+        data = self.get_serializer(qs, many=True).data
+        if request.query_params.get("debug") == "1":
+            return Response({"data": data, "debug": debug, "strategy": match_strategy})
+        return Response(data)
 
     # GET /workoutplans/today
     @action(detail=False, methods=["get"], url_path="today")
     def today(self, request):
-        today_ = date.today()
+        today_ = timezone.localdate()
         plan = (
             WorkoutPlan.objects.filter(user=request.user, created_at__date=today_)
             .order_by("-created_at", "-id")
@@ -181,33 +196,38 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(plan).data)
 
     # POST /workoutplans/today/ensure/  → 멱등 보장
+    # ✅ WorkoutPlanViewSet.ensure_today (수정본)
     @action(detail=False, methods=["post"], url_path="today/ensure")
     def ensure_today(self, request):
-        today_ = date.today()
-        defaults = {
-            "title": f"{today_.isoformat()} Workout",
-            "description": "",
-            "summary": "",
-            "target_focus": request.data.get("target_focus", ""),
-            "source": getattr(WorkoutPlan.PlanSource, "MANUAL", None)
-                     or getattr(WorkoutPlan, "PlanSource", None)
-                     or None,
-        }
-        plan, created = WorkoutPlan.objects.get_or_create(
-            user=request.user,
-            created_at__date=today_,  # Note: get_or_create는 lookup에 __date 직접 사용 불가 → 아래 대안
-        )
-        # ↑ 위 라인은 Django에서 불가. 따라서 안전한 대안:
-        #   1) 먼저 조회 후 없으면 create.
-        #   (테스트 멱등성을 위해 로직 분리)
+        # KST 기준 오늘 날짜 (Django TZ 설정 반영)
+        today_ = timezone.localdate()
+
         plan = (
             WorkoutPlan.objects.filter(user=request.user, created_at__date=today_)
-            .order_by("-id")
+            .order_by("-created_at", "-id")
             .first()
         )
+        created = False
+
         if not plan:
+            defaults = {
+                "title": f"{today_.isoformat()} Workout",
+                "description": "",
+                "summary": "",
+                "target_focus": request.data.get("target_focus", ""),
+                "source": getattr(getattr(WorkoutPlan, "PlanSource", None), "MANUAL", None)
+                        or getattr(WorkoutPlan, "PlanSource", None)
+                        or None,
+            }
             plan = WorkoutPlan.objects.create(user=request.user, **defaults)
             created = True
+
+            # ✅ 중요: 모델에 date 필드가 있으면 '오늘'을 명시적으로 기록 (시차 문제 예방)
+            if _has_field(WorkoutPlan, "date"):
+                plan.date = today_
+                # updated_at 필드가 있으면 함께 반영(선택)
+                plan.save(update_fields=["date"] + (["updated_at"] if _has_field(WorkoutPlan, "updated_at") else []))
+
         ser = self.get_serializer(plan)
         return Response(ser.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
@@ -217,7 +237,10 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         plan = self.get_object()
         txt = (request.data.get("text") or "").strip()
         plan.description = txt
-        plan.save(update_fields=["description", "updated_at"] if _has_field(WorkoutPlan, "updated_at") else ["description"])
+        update_fields = ["description"]
+        if _has_field(WorkoutPlan, "updated_at"):
+            update_fields.append("updated_at")
+        plan.save(update_fields=update_fields)
         return Response({"ok": True, "description": plan.description})
 
     # POST /workoutplans/{id}/ai-feedback/
@@ -257,21 +280,25 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         ai = data.get("ai") or {}
         if hasattr(WorkoutPlan, "PlanSource"):
             plan.source = WorkoutPlan.PlanSource.AI_INITIAL
-        for f, k in (("ai_model", "model"), ("ai_version", "version"), ("ai_prompt", "prompt"),
-                     ("ai_response", "response"), ("ai_confidence", "confidence")):
+        for f, k in (
+            ("ai_model", "model"),
+            ("ai_version", "version"),
+            ("ai_prompt", "prompt"),
+            ("ai_response", "response"),
+            ("ai_confidence", "confidence"),
+        ):
             if _has_field(WorkoutPlan, f):
                 setattr(plan, f, ai.get(k, getattr(plan, f, None)))
         plan.save()
 
         created: list[TaskItem] = []
-        # N+1 방지: exercise id만 사용
         for t in data.get("tasks") or []:
             ex_id = t.get("exercise")
             if not ex_id:
                 continue
-            intensity_value = t.get("intensity") or TaskItem.IntensityLevel.MEDIUM
+            intensity_value = t.get("intensity") or getattr(TaskItem.IntensityLevel, "MEDIUM", "medium")
             if intensity_value == "mid":
-                intensity_value = TaskItem.IntensityLevel.MEDIUM
+                intensity_value = getattr(TaskItem.IntensityLevel, "MEDIUM", "medium")
 
             kwargs = dict(
                 workout_plan=plan,
@@ -337,8 +364,8 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         # 같은 날짜의 최신 플랜으로 매핑
         src_map = {}
         for p in src_plans:
-            d = p.created_at.date()
-            src_map[d] = p
+            d0 = p.created_at.date()
+            src_map[d0] = p
 
         created_plans = 0
         created_items = 0
@@ -372,6 +399,12 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
                             source=getattr(src_plan, "source", getattr(WorkoutPlan.PlanSource, "MANUAL", None)),
                         )
                         created_plans += 1
+                        
+                        # date 필드가 있으면 타깃 날짜로 보정
+                        if _has_field(WorkoutPlan, "date"):
+                            tgt_plan.date = tgt_day
+                            tgt_plan.save(update_fields=["date"] + (["updated_at"] if _has_field(WorkoutPlan, "updated_at") else []))
+                    
                     else:
                         if not overwrite and TaskItem.objects.filter(workout_plan=tgt_plan).exists():
                             skipped_days.append(tgt_day.isoformat())
@@ -463,7 +496,6 @@ class TaskItemViewSet(viewsets.ModelViewSet):
             TaskItem.objects.select_related("workout_plan", "exercise")
             .filter(workout_plan__user=self.request.user)
         )
-        # ?date / ?log_date → created_at__date 기준으로 일관 처리
         d = parse_iso_date(self.request.query_params.get("date") or self.request.query_params.get("log_date"))
         if d:
             qs = qs.filter(workout_plan__created_at__date=d)
@@ -575,11 +607,7 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         start = monday_of(parse_iso_date(request.query_params.get("start")) or date.today())
         end = start + timedelta(days=6)
 
-        items = (
-            self.get_queryset()
-            .filter(workout_plan__created_at__date__range=(start, end))
-        )
-
+        items = self.get_queryset().filter(workout_plan__created_at__date__range=(start, end))
         total = items.count()
 
         field_names = {f.name for f in TaskItem._meta.get_fields()}
@@ -595,20 +623,20 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         if total:
             if has_completed:
                 for dt, c in items.values_list("workout_plan__created_at", "completed"):
-                    d = dt.date()
-                    if start <= d <= end and c:
-                        day_has_done[d] = True
+                    d0 = dt.date()
+                    if start <= d0 <= end and c:
+                        day_has_done[d0] = True
             else:
                 for dt in items.values_list("workout_plan__created_at", flat=True):
-                    d = dt.date()
-                    if start <= d <= end:
-                        day_has_done[d] = True
+                    d0 = dt.date()
+                    if start <= d0 <= end:
+                        day_has_done[d0] = True
 
         # best streak 계산
         cur = best = 0
         for i in range(7):
-            d = start + timedelta(days=i)
-            if day_has_done.get(d, False):
+            d0 = start + timedelta(days=i)
+            if day_has_done.get(d0, False):
                 cur += 1
                 best = max(best, cur)
             else:
@@ -639,7 +667,7 @@ if HAS_WORKOUT_LOG:
         serializer_class = WorkoutLogSerializer
         permission_classes = [permissions.IsAuthenticated]
         filter_backends = [OrderingFilter]
-        ordering_fields = ("id", "created_at")
+        ordering_fields = ("id", "date")  # created_at 제거 (모델에 없음)
         ordering = ("-id",)
 
         def get_queryset(self):
@@ -759,8 +787,8 @@ def dashboard(request):
     progress_complete = int(round(completed_count / total_tasks * 100)) if total_tasks else 0
 
     ai_insights = [
-        {"id": "progress", "type": "success", "title": "Great Progress!",    "message": "Your strength sessions were consistent. Keep it up with steady increments.", "confidence": 94},
-        {"id": "tip",      "type": "info",    "title": "Optimization Tip",   "message": "마지막 세트는 1~2회 RIR(여유 반복 수) 남기고 마무리해보세요.",        "confidence": 87},
+        {"id": "progress", "type": "success", "title": "Great Progress!",  "message": "Your strength sessions were consistent. Keep it up with steady increments.", "confidence": 94},
+        {"id": "tip",      "type": "info",    "title": "Optimization Tip", "message": "마지막 세트는 1~2회 RIR(여유 반복 수) 남기고 마무리해보세요.",        "confidence": 87},
     ]
 
     progress_cards = [
@@ -775,18 +803,18 @@ def dashboard(request):
     ]
 
     # ====== 오늘 합계(today_totals) 주입 ======
-    today = date.today()
+    today = timezone.localdate()
     today_totals = {
         "workout_minutes": 0,
         "meals": {"calories": 0, "protein": 0, "carbs": 0, "fat": 0},
         "goals": {"total": 0, "completed": 0},
     }
 
-    # 1) 운동 합계 (WorkoutLog 있을 때)
+    # 1) 운동 합계 (WorkoutLog 있을 때) → created_at 아님, date 필드 사용!
     if HAS_WORKOUT_LOG:
         today_totals["workout_minutes"] = (
             WorkoutLog.objects
-            .filter(user=request.user, created_at__date=today)
+            .filter(user=request.user, date=today)
             .aggregate(Sum("duration_min"))["duration_min__sum"]
             or 0
         )
@@ -891,9 +919,9 @@ def workouts(request):
             "difficulty": "intermediate",
             "completed":  True,
             "exercises": [
-                {"id": "1", "name": "Bench Press",   "sets": 3, "reps": 10},
-                {"id": "2", "name": "Barbell Row",   "sets": 3, "reps": 8},
-                {"id": "3", "name": "Overhead Press","sets": 3, "reps": 10},
+                {"id": "1", "name": "Bench Press",    "sets": 3, "reps": 10},
+                {"id": "2", "name": "Barbell Row",    "sets": 3, "reps": 8},
+                {"id": "3", "name": "Overhead Press", "sets": 3, "reps": 10},
             ],
         },
     ]

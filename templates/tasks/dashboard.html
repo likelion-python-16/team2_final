@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}AI 대시보드{% endblock %}
+
 {% block extra_head %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 {% endblock %}
+
 {% block content %}
 <div class="dashboard-shell">
   <aside class="dashboard-glow" aria-hidden="true"></aside>
@@ -23,11 +25,10 @@
   <div class="dashboard-divider"></div>
 
   <main class="dashboard-layout">
-
-    <!-- 컬럼 A -->
+    <!-- ====== Column A ====== -->
     <section class="dashboard-column">
 
-      <!-- Today Summary (오늘 합계) -->
+      <!-- Today Summary (운동/식단/목표 합계) -->
       <article class="dashboard-card dashboard-card--stat">
         <div class="dashboard-card__heading">
           <div>
@@ -70,16 +71,21 @@
       </article>
 
       <!-- Progress -->
-      <article class="dashboard-card dashboard-card--stat" id="progress" data-progress-total="{{ progress_total }}" data-progress-complete="{{ progress_done }}">
+      <article
+        class="dashboard-card dashboard-card--stat"
+        id="progress"
+        data-progress-total="{{ progress_total }}"
+        data-progress-complete="{{ progress_done }}"
+      >
         <div class="progress-panel__header">
           <div>
             <h2>Today's Progress</h2>
             <p class="progress-panel__sub">
-              {{ summary.total_minutes }} min of training · {{ summary.active_plans }} active plans
+              {{ summary.total_minutes|default:0 }} min of training · {{ summary.active_plans|default:0 }} active plans
             </p>
           </div>
           <div class="progress-panel__complete">
-            <span class="progress-panel__percent" id="progressPercent">{{ progress_complete }}%</span>
+            <span class="progress-panel__percent" id="progressPercent">{{ progress_complete|default:0 }}%</span>
             <span class="progress-panel__caption">Complete</span>
           </div>
         </div>
@@ -95,9 +101,9 @@
         <div class="progress-goal">
           <div class="progress-goal__bar"><span id="progressGoalFill" style="width: 0%"></span></div>
           <p class="progress-goal__text" id="progressGoalLabel">
-            <span id="progressGoalCount">{{ progress_done }}</span>
+            <span id="progressGoalCount">{{ progress_done|default:0 }}</span>
             of
-            <span id="progressGoalTotal">{{ progress_total }}</span>
+            <span id="progressGoalTotal">{{ progress_total|default:0 }}</span>
             daily goals completed
           </p>
         </div>
@@ -127,10 +133,18 @@
 
         <ul class="task-card__list" id="dailyTasks">
           {% for task in daily_tasks %}
-            <li class="task-card__item{% if task.completed %} is-complete{% endif %}" data-task-type="{{ task.type }}" data-completed="{{ task.completed|yesno:'true,false' }}">
+            <li
+              class="task-card__item{% if task.completed %} is-complete{% endif %}"
+              data-task-type="{{ task.type }}"
+              data-completed="{{ task.completed|yesno:'true,false' }}"
+            >
               <label class="task-card__toggle">
                 <input type="checkbox" class="task-card__input" data-task-checkbox {% if task.completed %}checked{% endif %}>
-                <span class="task-card__checkbox" data-state="{% if task.completed %}checked{% else %}unchecked{% endif %}" aria-hidden="true">
+                <span
+                  class="task-card__checkbox"
+                  data-state="{% if task.completed %}checked{% else %}unchecked{% endif %}"
+                  aria-hidden="true"
+                >
                   <svg viewBox="0 0 24 24" focusable="false">
                     <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" />
                   </svg>
@@ -167,7 +181,7 @@
       </article>
     </section>
 
-    <!-- 컬럼 B -->
+    <!-- ====== Column B ====== -->
     <section class="dashboard-column">
 
       <!-- Recommendations -->
@@ -238,6 +252,7 @@
   <a class="floating-button" href="#" aria-label="빠른 추가">＋</a>
 </div>
 {% endblock %}
+
 {% block extra_js %}
   {{ block.super }}
   <script src="{% static 'js/dashboard.js' %}"></script>
