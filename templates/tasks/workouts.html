@@ -45,8 +45,9 @@
       </h2>
       <div style="display:flex; gap:8px; align-items:center;">
         <input type="date" id="wk-plan-date" />
-        <a class="health-button-secondary" href="#" id="wk-load-by-date">Load by Date</a>
-        <a class="health-button-secondary" href="#" id="wk-ensure-today">Generate New Plan</a>
+        <a class="health-button-secondary" href="#" id="wk-load-by-date" aria-label="선택한 날짜 로드">Load by Date</a>
+        <a class="health-button-secondary" href="#" id="wk-ensure-today" aria-label="오늘 플랜 생성 또는 보장">Generate New Plan</a>
+
       </div>
     </div>
 
@@ -54,9 +55,9 @@
     <div class="wk-bar">
       <div class="wk-days" id="wk-days"></div>
       <div class="wk-pager">
-        <button class="btn btn--ghost" id="wk-prev-day">◀ Prev</button>
-        <span id="wk-current-label" class="muted"></span>
-        <button class="btn btn--ghost" id="wk-next-day">Next ▶</button>
+        <button class="btn btn--ghost" id="wk-prev-day" aria-label="이전 날짜로 이동">◀ Prev</button>
+        <span id="wk-current-label" class="muted" aria-live="polite"></span>
+        <button class="btn btn--ghost" id="wk-next-day" aria-label="다음 날짜로 이동">Next ▶</button>
       </div>
     </div>
   </section>
@@ -66,11 +67,11 @@
     <div class="dashboard-card__heading">
       <div>
         <h2>Current Plan</h2>
-        <p class="dashboard-card__sub">
-          Date: <span id="wk-plan-date-label">-</span> ·
-          Plan ID: <span id="wk-plan-id">-</span> ·
-          Tasks: <span id="wk-plan-taskcount">0</span> ·
-          Total: <span id="wk-plan-duration">0</span> min
+        <p class="dashboard-card__sub" role="group" aria-label="Current plan summary">
+          Date: <span id="wk-plan-date-label" aria-live="polite">-</span> ·
+          Plan ID: <span id="wk-plan-id" aria-live="polite">-</span> ·
+          Tasks: <span id="wk-plan-taskcount" aria-live="polite">0</span> ·
+          Total: <span id="wk-plan-duration" aria-live="polite">0</span> min
         </p>
       </div>
     </div>

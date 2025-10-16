@@ -1756,3 +1756,84 @@ body {
   stroke-dashoffset: calc(339.292 * (1 - (var(--pct, 0) / 100)));
   transition: stroke-dashoffset .6s ease, stroke .3s ease;
 }
+
+/* 동적 카운트 오버레이 */
+.ring-live {
+  position: relative;
+  display: inline-block;
+}
+.ring-live__count {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-weight: 700;
+  font-size: 18px; /* 필요 시 조절 */
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* 접기/펼치기 */
+.task-list--collapsible [data-task-item].is-hidden { display: none; }
+.task-toggle {
+  margin-top: 8px; font-weight: 600; border: 1px solid #e5e7eb;
+  background: #fff; border-radius: 10px; padding: 8px 12px; cursor: pointer;
+}
+.task-toggle[aria-expanded="true"] { background: #f3f4f6; }
+
+/* Accordion (추가만) */
+.accordion { display: grid; gap: 8px; }
+.accordion__section { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+.accordion__header {
+  width: 100%; text-align: left; padding: 10px 12px; background: #f9fafb; border-radius: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer;
+}
+.accordion__title { font-weight: 700; }
+.accordion__count { font-size: 12px; color: #6b7280; }
+.accordion__panel { padding: 8px 12px 12px; }
+.accordion__panel[hidden] { display: none; }
+.accordion__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.accordion__item label { display: flex; align-items: center; gap: 8px; }
+.accordion__item .done { text-decoration: line-through; color: #6b7280; }
+
+/* (교체) 접기/펼치기 숨김 규칙 */
+.task-list--collapsible .is-hidden { display: none; }
+/* 기존에 있었던
+   .task-list--collapsible [data-task-item].is-hidden { display: none; }
+   이 규칙은 남겨도 되고, 위 규칙이 더 넓게 커버함 */
+
+   /* 대시보드 운동 리스트 레이아웃 보정 (추가만) */
+.dashboard-card .task-card__list {
+  display: grid !important;
+  grid-auto-rows: minmax(28px, auto);
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  white-space: normal !important; /* nowrap 덮기 */
+  width: 100%;
+}
+
+.dashboard-card .task-card__list > li,
+.dashboard-card .task-card__list > .task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-list--collapsible .is-hidden { display: none !important; }
+
+/* 아코디언 내부 항목도 줄바꿈 보장 */
+.accordion__list { 
+  display: grid !important;
+  grid-auto-rows: minmax(28px, auto);
+  gap: 6px;
+  white-space: normal !important;
+}
+.accordion__item.is-hidden { display: none !important; }
+
+/* A6: 키보드 포커스 가시화 */
+:focus-visible {
+  outline: 2px solid #111; /* 눈에 잘 띄는 포커스 */
+  outline-offset: 2px;
+}

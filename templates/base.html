@@ -7,6 +7,7 @@
   <title>{% block title %}Healthcare{% endblock %}</title>
 
   <!-- 폰트 & 전역 CSS -->
+  <link rel="icon" href="{% static 'favicon.ico' %}" type="image/x-icon">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -14,6 +15,10 @@
 
   {% block extra_css %}{% endblock %}
 
+  <!-- ✅ 전역 API 유틸 (head에 두어도 안전) -->
+  <script src="{% static 'js/common/api.js' %}"></script>
+
+  <!-- ✅ (기존 authHeaders 유틸 — api.js와 겹치지만 삭제는 안 하고 둠) -->
   <script>
     (function() {
       function getCookie(name) {
@@ -55,22 +60,24 @@
 </head>
 <body>
   <!-- 헤더(기존 partial 감싸기) -->
-
   <header class="site-header">
     <div class="container row between center">
       {% include 'partials/navbar.html' %}
     </div>
   </header>
 
-
-
   <main>
     {% block content %}{% endblock %}
   </main>
 
-
   <!-- 푸터(기존 partial 감싸기) -->
 
+  <!-- ✅ 공통 UI 유틸 (body 끝에 두는 게 안전) -->
+  <script src="{% static 'js/common/ui.js' %}"></script>
+  <!-- 공통 날짜 유틸 -->
+  <script src="{% static 'js/common/date.js' %}"></script>
+
+  <!-- 페이지별 스크립트 -->
   {% block extra_js %}{% endblock %}
 </body>
 </html>

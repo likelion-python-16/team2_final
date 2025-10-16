@@ -13,7 +13,8 @@
 
   <header class="dashboard-header">
     <div class="dashboard-header__text">
-      <h1>Dashboard</h1>
+      <!-- ✅ B2 훅: 제목 동적화 -->
+      <h1 data-plan-title>Dashboard</h1>
       <p>AI 코칭과 함께 오늘의 목표를 확인하세요.</p>
     </div>
     <div class="dashboard-header__actions">
@@ -85,11 +86,13 @@
             </p>
           </div>
           <div class="progress-panel__complete">
-            <span class="progress-panel__percent" id="progressPercent">{{ progress_complete|default:0 }}%</span>
+            <!-- ✅ B3 훅: 진행 퍼센트 텍스트는 JS가 갱신 -->
+            <span class="progress-panel__percent" data-progress-text id="progressPercent">{{ progress_complete|default:0 }}%</span>
             <span class="progress-panel__caption">Complete</span>
           </div>
         </div>
 
+        <!-- 기존 progress ring 카드 유지 -->
         <div class="progress-ring-row" id="progressRings">
           {% for item in progress_cards %}
             <div class="progress-ring-wrap progress-ring-wrap--{{ item.color }}">
@@ -98,18 +101,29 @@
           {% endfor %}
         </div>
 
+        <!-- ✅ B3 링 업데이트용 미니멀 SVG(추가만) -->
+        <div class="progress-ring-row" aria-hidden="true" style="display:flex;gap:12px;align-items:center;margin-top:8px;">
+          <svg class="progress-ring" width="120" height="120">
+            <circle class="progress-ring__value-circle" r="54" cx="60" cy="60" stroke-width="12" fill="transparent"></circle>
+          </svg>
+          <div class="muted">자동 진행률 링(실데이터)</div>
+        </div>
+
+        <!-- ✅ B3 훅: 목표 카운트 텍스트도 JS가 실데이터로 덮어씀 -->
         <div class="progress-goal">
           <div class="progress-goal__bar"><span id="progressGoalFill" style="width: 0%"></span></div>
           <p class="progress-goal__text" id="progressGoalLabel">
-            <span id="progressGoalCount">{{ progress_done|default:0 }}</span>
-            of
-            <span id="progressGoalTotal">{{ progress_total|default:0 }}</span>
-            daily goals completed
+            <span data-progress-text>0/0</span> daily goals completed
           </p>
+        </div>
+
+        <!-- ✅ B3 훅: 상단 상태 배지 -->
+        <div style="margin-top:8px;">
+          <span class="badge" data-workout-status>Not Started</span>
         </div>
       </article>
 
-      <!-- Daily Tasks -->
+      <!-- Daily Tasks (서버 렌더 유지) -->
       <article class="premium-card task-card" id="tasks">
         <div class="task-card__header">
           <div>
@@ -155,6 +169,18 @@
             </li>
           {% endfor %}
         </ul>
+      </article>
+
+      <!-- ✅ B3 전용: Workout TaskItem 체크리스트(실데이터 바인딩 전용, 추가만) -->
+      <article class="dashboard-card">
+        <div class="dashboard-card__heading">
+          <div>
+            <h2>Workout Tasks</h2>
+            <p class="dashboard-card__sub">오늘 플랜의 세부 운동 목록</p>
+          </div>
+        </div>
+        <!-- JS가 채우는 리스트 -->
+        <ul class="task-card__list" data-task-list></ul>
       </article>
 
       <!-- AI Insights -->
@@ -256,4 +282,5 @@
 {% block extra_js %}
   {{ block.super }}
   <script src="{% static 'js/dashboard.js' %}"></script>
+  <script src="{% static 'js/dashboard.bind.js' %}"></script>
 {% endblock %}
