@@ -77,50 +77,6 @@
     </div>
     <div id="wk-tasks-list"></div>
   </section>
-
-  <!-- (기존 데모 카드 유지 시) -->
-  <section class="workouts-list">
-    {% for workout in workouts_plan %}
-      <article class="workout-card">
-        <header class="workout-card__header">
-          <div>
-            <h3>{{ workout.name }}</h3>
-            <div class="workout-card__meta">
-              <span class="workout-tag workout-tag--{{ workout.type }}">{{ workout.type }}</span>
-              <span class="workout-tag workout-tag--{{ workout.difficulty }}">{{ workout.difficulty }}</span>
-              <span class="workout-duration">{{ workout.duration }} min</span>
-            </div>
-          </div>
-          {% if workout.completed %}
-            <span class="workout-status workout-status--done">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12 10 17 19 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Completed
-            </span>
-          {% else %}
-            <a class="workout-start" href="#"><span>▶</span>Start Workout</a>
-          {% endif %}
-        </header>
-
-        <div class="workout-exercises">
-          <h4>Exercises</h4>
-          <ul>
-            {% for exercise in workout.exercises %}
-              <li>
-                <span>{{ exercise.name }}</span>
-                <span class="workout-exercises__detail">
-                  {% if exercise.sets and exercise.reps %}
-                    {{ exercise.sets }} × {{ exercise.reps }}
-                  {% else %}
-                    {{ exercise.duration }}s
-                  {% endif %}
-                </span>
-              </li>
-            {% endfor %}
-          </ul>
-        </div>
-      </article>
-    {% endfor %}
-  </section>
 </div>
 
 <!-- ✅ 플랜 위자드 -->
