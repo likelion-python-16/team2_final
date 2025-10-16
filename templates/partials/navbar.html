@@ -1,11 +1,49 @@
 <a class="logo" href="/">Healthcare</a>
+
 <nav class="nav" aria-label="주요 메뉴">
-  <a href="{% url 'tasks:workouts' %}">Weekly Planner</a>
-  <a href="{% url 'tasks:meals' %}">Nutrition</a>
-  <a href="{% url 'tasks:dashboard' %}">Dashboard</a>
-  <a href="{% url 'user_profile' %}">Profile</a>
-  <form method="post" action="/accounts/logout/" class="nav-logout">
-    {% csrf_token %}
-    <button type="submit">Log Out</button>
-  </form>
+  <ul class="nav-list">
+    <li>
+      <a href="{% url 'tasks:workouts' %}"
+         class="{% if request.path|slice:':16' == '/tasks/workouts' %}is-active{% endif %}"
+         {% if request.path|slice:':16' == '/tasks/workouts' %}aria-current="page"{% endif %}>
+        Weekly Planner
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'tasks:meals' %}"
+         class="{% if request.path|slice:':12' == '/tasks/meals' %}is-active{% endif %}"
+         {% if request.path|slice:':12' == '/tasks/meals' %}aria-current="page"{% endif %}>
+        Nutrition
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'tasks:dashboard' %}"
+         class="{% if request.path|slice:':15' == '/tasks/dashboard' %}is-active{% endif %}"
+         {% if request.path|slice:':15' == '/tasks/dashboard' %}aria-current="page"{% endif %}>
+        Dashboard
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'user_profile' %}"
+         class="{% if request.path|slice:':8' == '/profile' %}is-active{% endif %}"
+         {% if request.path|slice:':8' == '/profile' %}aria-current="page"{% endif %}>
+        Profile
+      </a>
+    </li>
+  </ul>
+
+  <ul class="nav-list">
+    {% if request.user.is_authenticated %}
+      <li class="muted" style="padding:6px 10px;">{{ request.user.username }}</li>
+      <li>
+        <form method="post" action="{% url 'logout' %}" class="nav-logout">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.path }}">
+          <button type="submit">Log Out</button>
+        </form>
+      </li>
+    {% else %}
+      <li><a href="{% url 'login' %}?next={{ request.path }}">Login</a></li>
+    {% endif %}
+  </ul>
 </nav>

@@ -1837,3 +1837,5 @@ body {
   outline: 2px solid #111; /* 눈에 잘 띄는 포커스 */
   outline-offset: 2px;
 }
+.nav-list a.is-active{font-weight:700;border-bottom:2px solid currentColor}
+.nav-list a.is-active { font-weight: 700; border-bottom: 2px solid currentColor; }

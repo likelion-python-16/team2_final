@@ -1,9 +1,7 @@
 # team2_final/urls.py
-
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic import RedirectView
-from django.http import JsonResponse
 
 from drf_spectacular.views import (
     SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
@@ -27,9 +25,6 @@ from tasks import urls as tasks_urls
 from .auth_views import (
     PublicTokenObtainPairView, PublicTokenRefreshView, PublicTokenVerifyView
 )
-
-def root_healthcheck(_request):
-    return JsonResponse({"status": "ok", "message": "Workout & feedback API root"})
 
 urlpatterns = [
     # ---------- 헬스체크 / 오늘 요약 ----------

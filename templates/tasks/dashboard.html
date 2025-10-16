@@ -181,6 +181,14 @@
         </div>
         <!-- JS가 채우는 리스트 -->
         <ul class="task-card__list" data-task-list></ul>
+        <form data-inline-task-form class="row" style="gap:8px; margin-top:10px;">
+        <input type="text"  data-new-name placeholder="Exercise name" required style="min-width:160px;">
+        <input type="number" data-new-sets placeholder="sets" min="0" step="1" style="width:80px;">
+        <input type="number" data-new-reps placeholder="reps" min="0" step="1" style="width:80px;">
+        <input type="number" data-new-min  placeholder="min"  min="0" step="1" style="width:90px;">
+        <button type="submit" class="btn">Add</button>
+</form>
+
       </article>
 
       <!-- AI Insights -->

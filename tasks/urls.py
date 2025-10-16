@@ -1,38 +1,58 @@
-# tasks/urls.py
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+
 from . import views
+from . import api_views  # Today Summary/Recommendations/Insights 등 최소 API 뷰
 
+# -------------------------------------------------------------------
+# DRF Router (뷰셋들)
+# -------------------------------------------------------------------
 router = DefaultRouter()
-router.register(r'exercises', views.ExerciseViewSet, basename='exercise')
-router.register(r'workoutplans', views.WorkoutPlanViewSet, basename='workoutplan')
-router.register(r'taskitems', views.TaskItemViewSet, basename='taskitem')
+router.register(r"exercises", views.ExerciseViewSet, basename="exercise")
+router.register(r"workoutplans", views.WorkoutPlanViewSet, basename="workoutplan")
+router.register(r"taskitems", views.TaskItemViewSet, basename="taskitem")
 
-# WorkoutLogViewSet 이 있을 때만 등록
+# 선택적: WorkoutLogViewSet 이 있을 때만 등록
 try:
-    router.register(r'workoutlogs', views.WorkoutLogViewSet, basename='workoutlog')
+    router.register(r"workoutlogs", views.WorkoutLogViewSet, basename="workoutlog")
 except Exception:
     pass
 
 # 테스트/호환용 별칭
-router.register(r'tasks', views.TaskItemViewSet, basename='tasks')
+router.register(r"tasks", views.TaskItemViewSet, basename="tasks")
 
-# 페이지 네임스페이스
+# -------------------------------------------------------------------
+# 페이지 라우트 (템플릿 렌더)
+# -------------------------------------------------------------------
 app_name = "tasks"
 
-# ✅ API 패턴 (여기에 'api/' 접두사를 넣지 마세요!)
-api_urlpatterns = [
-    path("", include(router.urls)),  # /exercises, /workoutplans, /taskitems, ...
-    path("fixtures/exercises/", views.fixtures_exercises, name="fixtures-exercises"),
-]
-
-# ✅ 페이지 패턴
 page_urlpatterns = [
     path("dashboard/", views.dashboard, name="dashboard"),
     path("workouts/", views.workouts, name="workouts"),
     path("meals/", views.meals, name="meals"),
 ]
 
-# ✅ 기본 export: 페이지 라우트만 노출
-# (API는 루트 urls.py에서 `api/`에 마운트하도록 분리)
+# -------------------------------------------------------------------
+# API 라우트 (여기엔 'api/' 접두사를 절대 넣지 않습니다)
+# 루트 urls.py에서 `path("api/", include(...))`로 마운트합니다.
+# -------------------------------------------------------------------
+api_urlpatterns = [
+    path("", include(router.urls)),  # /exercises, /workoutplans, /taskitems, ...
+    path("fixtures/exercises/", views.fixtures_exercises, name="fixtures-exercises"),
+
+    # ✅ Today 패널용 최소 API
+    # GET /api/workoutplans/summary/?date=YYYY-MM-DD[&workout_plan=<id>]
+    path("workoutplans/summary/", api_views.WorkoutSummaryView.as_view(), name="workout-summary"),
+
+    # GET /api/recommendations/?date=YYYY-MM-DD[&workout_plan=<id>]
+    path("recommendations/", api_views.RecommendationsView.as_view(), name="recommendations"),
+
+    # GET /api/insights/today/?date=YYYY-MM-DD[&workout_plan=<id>]
+    path("insights/today/", api_views.TodayInsightsView.as_view(), name="today-insights"),
+]
+
+# -------------------------------------------------------------------
+# 최종 노출: 페이지 라우트만 기본 export
+# (API는 루트 urls.py에서 api_urlpatterns 를 별도 include)
+# -------------------------------------------------------------------
 urlpatterns = page_urlpatterns

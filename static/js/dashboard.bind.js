@@ -1,20 +1,23 @@
 // static/js/dashboard.bind.js
-// Requires: A1(api.js), A2(ui.js), A3(date.js)
-// Scope: Dashboard B1~B3 + 접기/펼치기 + 유형별 아코디언 + (추가) DOM 중복 제거
-// 원칙: 템플릿/스타일 삭제 없이 "추가만"으로 동작
+// Scope: Dashboard B1~B7
+// - B1: 오늘 플랜 로드
+// - B2: 제목 주입
+// - B3: 진행도/링/상태/체크리스트
+// - 접기/펼치기, 유형별 아코디언, DOM 중복 제거, 토글 PATCH/삭제 DELETE
+// - (선택) 인라인 추가(B7): data-inline-task-form 있으면 자동 활성화
+// 원칙: 템플릿/스타일은 "추가만", 삭제/대수정 없음
 
 (function () {
   "use strict";
 
   // ─────────────────────────────────────────────────────────────
-  // A1 Fallback 래퍼 (api.get/patch 미정의 시 대비)
+  // A1 Fallback API (api.js 부재 대비)
   // ─────────────────────────────────────────────────────────────
   const api = (function ensureApi() {
-    if (window.api && typeof window.api.get === "function" && typeof window.api.patch === "function") {
-      return window.api;
-    }
+    if (window.api?.get && window.api?.patch && window.api?.post && window.api?.del) return window.api;
+
     const headers = () => (window.authHeaders ? window.authHeaders() : { "Content-Type": "application/json" });
-    const fetchJson = async (url, opts = {}) => {
+    async function fetchJson(url, opts = {}) {
       const res = await fetch(url, { credentials: "same-origin", headers: headers(), ...opts });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -24,10 +27,12 @@
         throw err;
       }
       return data;
-    };
+    }
     return {
-      get: (url) => fetchJson(url),
-      patch: (url, body) => fetchJson(url, { method: "PATCH", body: JSON.stringify(body || {}) }),
+      get:  (url)      => fetchJson(url),
+      patch:(url,body) => fetchJson(url, { method:"PATCH", body: JSON.stringify(body||{}) }),
+      post: (url,body) => fetchJson(url, { method:"POST",  body: JSON.stringify(body||{}) }),
+      del:  (url)      => fetchJson(url, { method:"DELETE" }),
     };
   })();
 
@@ -42,23 +47,19 @@
     try {
       const list = await api.get(`/api/workoutplans/by-date/?date=${today}`);
       const plans = Array.isArray(list) ? list : (Array.isArray(list?.results) ? list.results : []);
-      if (!plans || !plans.length) {
+      if (!plans?.length) {
         console.info("[B1] 오늘 플랜 없음:", today);
         return null;
       }
       const planId = plans[0].id;
       const plan = await api.get(`/api/workoutplans/${planId}/`);
-      console.info("[B1] 오늘 플랜:", plan);
       return plan;
     } catch (err) {
-      if (!ui.handleAuthError?.(err)) {
-        ui.toastError?.("오늘 플랜을 불러오지 못했습니다.");
-        console.error("[B1] loadTodayPlan error:", err);
-      }
+      if (!ui.handleAuthError?.(err)) ui.toastError?.("오늘 플랜을 불러오지 못했습니다.");
       return null;
     }
   }
-  window.loadTodayPlan = loadTodayPlan;
+  window.loadTodayPlan = loadTodayPlan; // 다른 스크립트에서 재사용
 
   // ─────────────────────────────────────────────────────────────
   // B2: 제목 동적화
@@ -76,20 +77,18 @@
   async function injectTodayTitle() {
     try {
       const plan = await loadTodayPlan();
-      if (!plan) return; // 플랜 없으면 기존 문구 유지
-      setPlanTitleFrom(plan);
+      if (plan) setPlanTitleFrom(plan);
     } catch {
       ui.toastError?.("제목을 불러오지 못했습니다.");
     }
   }
 
   // ─────────────────────────────────────────────────────────────
-  // B3: 진행도/링/체크리스트
+  // B3: 진행도·링·상태·체크리스트
   // ─────────────────────────────────────────────────────────────
   async function loadTasksForPlan(planId) {
     try {
-      const qs = `/api/taskitems/?workout_plan=${encodeURIComponent(planId)}`;
-      const resp = await api.get(qs);
+      const resp = await api.get(`/api/taskitems/?workout_plan=${encodeURIComponent(planId)}`);
       return Array.isArray(resp) ? resp : (Array.isArray(resp?.results) ? resp.results : []);
     } catch (err) {
       if (!ui.handleAuthError?.(err)) ui.toastError?.("작업 목록을 불러오지 못했습니다.");
@@ -97,7 +96,6 @@
     }
   }
 
-  // 서버 렌더된 Daily Tasks 읽기(있으면 우선 사용)
   function readDailyTasksFromServer() {
     const list = document.getElementById("dailyTasks");
     if (!list) return null;
@@ -114,7 +112,6 @@
     return { done, total: items.length };
   }
 
-  // 진행도/링 갱신 (Daily 우선 → 없으면 Workout)
   function updateProgressUsingDailyOrWorkout(workoutTasks) {
     const daily = readDailyTasksFromServer();
     let done = 0, total = 0;
@@ -128,27 +125,14 @@
       done = wt.filter((t) => !!t.completed).length;
     }
 
-    // 0/n 카운트
-    document.querySelectorAll("[data-progress-count]").forEach((el) => {
-      el.textContent = `${done}/${total}`;
-    });
-    // 원 중앙 텍스트 덮어쓰기
-    document.querySelectorAll(".progress-ring__value-text").forEach((el) => {
-      el.textContent = `${done}/${total}`;
-    });
-    // % 텍스트
     const pct = total ? Math.round((done / total) * 100) : 0;
-    document.querySelectorAll("[data-progress-percent]").forEach((el) => {
-      el.textContent = `${pct}%`;
-    });
-    // A11y: 진행도 상태를 보조기기에 알려주기 (첫 번째 진행도 영역 기준)
-    const region = document.querySelector("[data-progress-count]");
-    if (region) {
-      region.setAttribute("role", "status");
-      region.setAttribute("aria-live", "polite");
-      region.setAttribute("aria-label", `오늘 진행도 ${done}개 완료, 총 ${total}개, ${pct}%`);
-}
-    // 링 스트로크
+
+    // 0/n, % 텍스트 & 중앙 텍스트
+    document.querySelectorAll("[data-progress-count]").forEach((el) => { el.textContent = `${done}/${total}`; });
+    document.querySelectorAll("[data-progress-percent]").forEach((el) => { el.textContent = `${pct}%`; });
+    document.querySelectorAll(".progress-ring__value-text").forEach((el) => { el.textContent = `${done}/${total}`; });
+
+    // 링
     const ring = document.querySelector(".progress-ring__value-circle");
     if (ring) {
       const R = Number(ring.getAttribute("r") || 54);
@@ -156,24 +140,35 @@
       ring.style.strokeDasharray = `${C}`;
       ring.style.strokeDashoffset = String(C - (pct / 100) * C);
     }
-    // 상태 배지
+
+    // 상태 배지 (C6 규칙: 100%만 Completed)
     document.querySelectorAll("[data-workout-status]").forEach((el) => {
       let txt = "Not Started";
       if (total > 0 && done === total) txt = "Completed";
       else if (done > 0) txt = "In Progress";
       el.textContent = txt;
-      // (선택) 클래스 토글은 CSS 유틸이 있을 때:
       el.classList.remove("badge-started", "badge-completed");
       if (txt === "In Progress") el.classList.add("badge-started");
       if (txt === "Completed") el.classList.add("badge-completed");
     });
-    // 게이지 바
+
+    // a11y 안내 (한 곳만)
+    const region = document.querySelector("[data-progress-count]");
+    if (region) {
+      region.setAttribute("role", "status");
+      region.setAttribute("aria-live", "polite");
+      region.setAttribute("aria-label", `오늘 진행도 ${done}개 완료, 총 ${total}개, ${pct}%`);
+    }
+
+    // 게이지 바 (있을 때만)
     const fill = document.getElementById("progressGoalFill");
     if (fill) fill.style.width = `${pct}%`;
   }
 
-  // 체크리스트 렌더(+ 접기)
-  function renderTasks(tasks, planId) {
+  // ─────────────────────────────────────────────────────────────
+  // 체크리스트 렌더 (+ 접기)
+  // ─────────────────────────────────────────────────────────────
+  function renderChecklist(tasks, planId) {
     const list = document.querySelector("[data-task-list]");
     if (!list) return;
 
@@ -191,45 +186,79 @@
       const li = document.createElement("li");
       li.className = "task-row";
       li.setAttribute("data-task-item", "");
-      const name = t?.exercise_name || t?.exercise || "Task";
+
+      const name = t?.exercise_detail?.name || t?.exercise_name || t?.exercise || "Task";
       const done = !!t?.completed;
+
       li.innerHTML = `
-        <label class="task-check" style="display:flex;gap:8px;align-items:center;">
-          <input type="checkbox" ${done ? "checked" : ""} data-task-id="${t.id}" aria-label="Complete Task"/>
-          <span>${name}</span>
+        <label class="row between task" data-id="${t.id}" style="gap:10px; padding:6px 0;">
+          <span class="row" style="gap:8px; align-items:center;">
+            <input type="checkbox" data-action="toggle" ${done ? "checked" : ""} aria-label="Complete Task">
+            <b>${name}</b>
+            <span class="muted">
+              ${(t?.target_sets ?? "-")}x${(t?.target_reps ?? "-")} · ${t?.intensity ?? "-"} · ${t?.duration_min ?? 0}m
+            </span>
+          </span>
+          <button class="btn btn--ghost" data-action="delete">Delete</button>
         </label>
       `;
       frag.appendChild(li);
     }
     list.appendChild(frag);
 
-    // 저장 이벤트(위임) — once 제거 (여러 번 토글 가능)
-    if (!list.__boundToggle) {
+    // 진행도 업데이트
+    updateProgressUsingDailyOrWorkout(tasks);
+
+    // 이벤트 위임 (중복 바인딩 방지)
+    if (!list.__boundHandlers) {
       list.addEventListener("change", async (e) => {
         const cb = e.target;
         if (!(cb instanceof HTMLInputElement)) return;
-        const taskId = cb.dataset.taskId;
-        if (!taskId) return;
-
+        if (cb.getAttribute("data-action") !== "toggle") return;
+        const row = cb.closest(".task");
+        const id = Number(row?.dataset?.id);
         const prev = !cb.checked;
-        try {
-          await api.patch(`/api/taskitems/${taskId}/`, { completed: cb.checked });
 
-          // 최신 항목 다시 가져와서 진행도 갱신 + DOM 중복 제거
-          const fresh = await loadTasksForPlan(planId);
-          updateProgressUsingDailyOrWorkout(fresh);
+        try {
+          await api.patch(`/api/taskitems/${id}/`, { completed: cb.checked });
+          // 재조회로 정확도 확보
+          const plan = await loadTodayPlan();
+          const fresh = plan ? await loadTasksForPlan(plan.id) : [];
+          renderChecklist(fresh, plan?.id);
+          renderTasksAccordion(fresh, plan?.id);
           dedupeTaskDomListByName("[data-task-list]");
         } catch (err) {
-          cb.checked = prev; // 롤백
+          cb.checked = prev;
           if (!ui.handleAuthError?.(err)) ui.toastError?.("저장에 실패했습니다. 다시 시도해 주세요.");
         }
       });
-      list.__boundToggle = true; // 중복 바인딩 방지 플래그
+
+      list.addEventListener("click", async (e) => {
+        const btn = e.target.closest("[data-action='delete']");
+        if (!btn) return;
+        const row = btn.closest(".task");
+        const id = Number(row?.dataset?.id);
+        if (!id) return;
+        if (!confirm("삭제할까요?")) return;
+
+        try {
+          await api.del(`/api/taskitems/${id}/`);
+          const plan = await loadTodayPlan();
+          const fresh = plan ? await loadTasksForPlan(plan.id) : [];
+          renderChecklist(fresh, plan?.id);
+          renderTasksAccordion(fresh, plan?.id);
+          dedupeTaskDomListByName("[data-task-list]");
+        } catch (err) {
+          if (!ui.handleAuthError?.(err)) ui.toastError?.("삭제 실패");
+        }
+      });
+
+      list.__boundHandlers = true;
     }
 
-    // 초기 진행도 반영 + 접기(3개 기준) + DOM 중복 제거
-    updateProgressUsingDailyOrWorkout(tasks);
+    // 접기(3개 기준)
     applyCollapsible(list, 3);
+    // 렌더 후 DOM 중복 제거
     dedupeTaskDomListByName("[data-task-list]");
   }
 
@@ -249,7 +278,6 @@
       return;
     }
 
-    // 초기: 접힘
     items.forEach((el, i) => { if (i >= maxVisible) el.classList.add("is-hidden"); });
 
     btn.hidden = false;
@@ -286,17 +314,10 @@
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Workout Tasks 아코디언
+  // 유형별 아코디언
   // ─────────────────────────────────────────────────────────────
   function getTypeKey(t) {
-    return (
-      t?.muscle_group ||
-      t?.body_part ||
-      t?.type ||
-      t?.category ||
-      t?.exercise_group ||
-      "기타"
-    );
+    return (t?.muscle_group || t?.body_part || t?.type || t?.category || t?.exercise_group || "기타");
   }
 
   function groupByType(tasks) {
@@ -312,6 +333,7 @@
   function renderTasksAccordion(tasks, planId) {
     const root = document.querySelector("[data-task-accordion]");
     if (!root) return;
+
     root.innerHTML = "";
     root.classList.add("accordion");
 
@@ -347,7 +369,7 @@
       const ul = document.createElement("ul");
       ul.className = "accordion__list";
 
-      // 정렬: order → id
+      // 정렬
       items.sort((a, b) => {
         const ao = (a?.order ?? 1e9), bo = (b?.order ?? 1e9);
         if (ao !== bo) return ao - bo;
@@ -358,7 +380,7 @@
         const li = document.createElement("li");
         li.className = "accordion__item";
         li.setAttribute("data-task-item", "");
-        const nameText = t?.exercise_name || t?.exercise || "Task";
+        const nameText = t?.exercise_detail?.name || t?.exercise_name || t?.exercise || "Task";
         const doneTask = !!t?.completed;
         li.innerHTML = `
           <label style="display:flex;gap:8px;align-items:center;">
@@ -381,7 +403,7 @@
         panel.hidden = expanded;
       });
 
-      // 섹션 내 토글 저장(위임)
+      // 섹션 내 토글 (위임)
       if (!ul.__boundToggle) {
         ul.addEventListener("change", async (e) => {
           const cb = e.target;
@@ -390,6 +412,7 @@
           if (!id) return;
           const text = cb.parentElement?.querySelector("span");
           const prev = !cb.checked;
+
           try {
             await api.patch(`/api/taskitems/${id}/`, { completed: cb.checked });
             if (text) text.classList.toggle("done", cb.checked);
@@ -399,9 +422,9 @@
             const doneNow = all.filter((x) => x.checked).length;
             count.textContent = `${doneNow}/${all.length}`;
 
-            // 상단 진행도도 동기화 (서버 기준 재조회 생략: DOM 기반 재계산)
-            dedupeTaskDomListByName("[data-task-list]"); // 메인 리스트 있을 때 동기화
+            // 상단 진행도 동기화(DOM/데일리 우선 정책으로 즉시)
             updateProgressUsingDailyOrWorkout(null);
+            dedupeTaskDomListByName("[data-task-list]");
           } catch (err) {
             cb.checked = prev;
             if (!ui.handleAuthError?.(err)) ui.toastError?.("저장에 실패했습니다.");
@@ -410,29 +433,20 @@
         ul.__boundToggle = true;
       }
 
-      // 섹션도 접기 기본 적용(3개만 보이게)
+      // 섹션 접기 기본(3개)
       applyCollapsible(ul, 3);
     }
   }
 
   // ─────────────────────────────────────────────────────────────
-  // (추가) DOM 안에서 "이름 중복" 제거 + 진행도 재계산
+  // DOM 중복 제거 + 진행도 재계산
   // ─────────────────────────────────────────────────────────────
   function normalizeNameKey(raw) {
     return String(raw || "")
       .toLowerCase()
-      .replace(/\(.*?\)/g, "")        // 괄호 설명 제거
-      .replace(/[^a-z0-9가-힣\s]/g, " ") // 특수문자 슬림화
-      .replace(/\s+/g, " ")           // 공백 정리
-      .trim();
-  }
-
-  function normalizeNameKey(raw) {
-    return String(raw || "")
-      .toLowerCase()
-      .replace(/\(.*?\)/g, "")        // 괄호 설명 제거
-      .replace(/[^a-z0-9가-힣\s]/g, " ") // 특수문자 슬림화
-      .replace(/\s+/g, " ")           // 공백 정리
+      .replace(/\(.*?\)/g, "")         // 괄호 설명 제거
+      .replace(/[^a-z0-9가-힣\s]/g, " ")// 특수문자 슬림화
+      .replace(/\s+/g, " ")            // 공백 정리
       .trim();
   }
 
@@ -441,21 +455,16 @@
     if (!list) return;
 
     const seen = new Set();
-
-    // ✅ 오타 수정: 잘못된 ']' 제거 + 단일 쿼리
     const items = Array.from(list.querySelectorAll("li[data-task-item], li.task-row"));
 
     for (const li of items) {
       const nameEl = li.querySelector("label span");
       const key = normalizeNameKey(nameEl ? nameEl.textContent : "");
-      if (seen.has(key)) {
-        li.remove(); // 화면에서만 제거
-      } else {
-        seen.add(key);
-      }
+      if (seen.has(key)) li.remove();
+      else seen.add(key);
     }
 
-    // DOM 기준 진행도 재계산
+    // DOM 기반 진행도 재계산
     const remaining = Array.from(list.querySelectorAll("li[data-task-item], li.task-row"));
     const total = remaining.length;
     const done = remaining.filter((li) => {
@@ -463,13 +472,12 @@
       return cb && cb.checked;
     }).length;
 
-    // 0/n, 중앙 텍스트
+    const pct = total ? Math.round((done / total) * 100) : 0;
+
     document.querySelectorAll("[data-progress-count]").forEach((el) => { el.textContent = `${done}/${total}`; });
     document.querySelectorAll(".progress-ring__value-text").forEach((el) => { el.textContent = `${done}/${total}`; });
-
-    // % + 링
-    const pct = total ? Math.round((done / total) * 100) : 0;
     document.querySelectorAll("[data-progress-percent]").forEach((el) => { el.textContent = `${pct}%`; });
+
     const ring = document.querySelector(".progress-ring__value-circle");
     if (ring) {
       const R = Number(ring.getAttribute("r") || 54);
@@ -478,7 +486,6 @@
       ring.style.strokeDashoffset = String(C - (pct / 100) * C);
     }
 
-    // 상태 배지
     document.querySelectorAll("[data-workout-status]").forEach((el) => {
       let txt = "Not Started";
       if (total > 0 && done === total) txt = "Completed";
@@ -486,7 +493,7 @@
       el.textContent = txt;
     });
 
-    // 더 보기/접기 버튼 텍스트 재세팅
+    // 접기 버튼 텍스트 새로고침
     const btn = list.parentElement?.querySelector("[data-task-toggle]");
     if (btn) {
       const maxVisible = 3;
@@ -496,45 +503,87 @@
       if (!btn.hidden) btn.textContent = expanded ? "접기" : `더 보기 (${hiddenCount})`;
     }
   }
-  
+
   // ─────────────────────────────────────────────────────────────
-  // 파이프라인
+  // 파이프라인 (B1~B3 + 아코디언 + 중복 제거)
   // ─────────────────────────────────────────────────────────────
   async function loadTodayPlanAndTasks() {
     const plan = await loadTodayPlan();
     const list = document.querySelector("[data-task-list]");
     if (!plan) {
-      updateProgressUsingDailyOrWorkout([]); // Daily 없으면 0/0 처리
       if (list) list.innerHTML = "";
+      updateProgressUsingDailyOrWorkout([]); // Daily 없으면 0/0 처리
       return;
     }
-    setPlanTitleFrom(plan); // B2: 제목
+    setPlanTitleFrom(plan); // B2
     const tasks = await loadTasksForPlan(plan.id);
-    renderTasks(tasks, plan.id);                 // 기본 리스트
-    renderTasksAccordion(tasks, plan.id);        // 유형별 아코디언 추가 렌더
-    updateProgressUsingDailyOrWorkout(tasks);    // 진행도 갱신
+    renderChecklist(tasks, plan.id);
+    renderTasksAccordion(tasks, plan.id);
+    updateProgressUsingDailyOrWorkout(tasks);
   }
   window.loadTodayPlanAndTasks = loadTodayPlanAndTasks;
 
   // ─────────────────────────────────────────────────────────────
-  // 초기 바인딩
+  // (선택) B7: 인라인 Task 추가 — 대시보드 카드에서 바로 POST
+  // 템플릿에 data-inline-task-form 이 있으면 자동 활성화.
+  // ─────────────────────────────────────────────────────────────
+  function bindInlineAddForDashboard() {
+    const $form = document.querySelector("[data-inline-task-form]");
+    if (!$form) return;
+
+    const $name = $form.querySelector("[data-new-name]");
+    const $sets = $form.querySelector("[data-new-sets]");
+    const $reps = $form.querySelector("[data-new-reps]");
+    const $min  = $form.querySelector("[data-new-min]");
+
+    $form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!$name.value.trim()) return $name.focus();
+
+      let plan = await loadTodayPlan();
+      if (!plan?.id) {
+        (window.toastError ? toastError("오늘 플랜이 없어요. 먼저 생성/로드해주세요.") : alert("오늘 플랜이 없어요."));
+        return;
+      }
+
+      const payload = {
+        workout_plan: plan.id,
+        exercise_name: $name.value.trim(),
+        target_sets: $sets.value ? Number($sets.value) : null,
+        target_reps: $reps.value ? Number($reps.value) : null,
+        duration_min: $min.value  ? Number($min.value)  : null,
+      };
+
+      try {
+        await api.post(`/api/taskitems/`, payload);
+        $name.value = ""; $sets.value = ""; $reps.value = ""; $min.value = "";
+        $name.focus();
+
+        // 최신으로 렌더/진행도 갱신
+        await loadTodayPlanAndTasks();
+      } catch (err) {
+        if (!ui.handleAuthError?.(err)) (window.toastError ? toastError("추가 실패") : alert("추가 실패"));
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 초기화
   // ─────────────────────────────────────────────────────────────
   document.addEventListener("DOMContentLoaded", () => {
-    // B1 확인 호출(로그/배너용)
-    loadTodayPlan();
-    // B2 제목 주입
-    injectTodayTitle();
-    // B3 + 아코디언 파이프라인
-    loadTodayPlanAndTasks();
+    // B1(로그만), B2, B3 파이프라인
+    loadTodayPlan();          // 로깅/확인용
+    injectTodayTitle();       // 제목
+    loadTodayPlanAndTasks();  // 리스트/아코디언/진행도
 
-    // Daily Tasks 체크 변경 시에도 진행도 갱신
+    // Daily 체크 변경 시에도 진행도 동기화
     const dailyList = document.getElementById("dailyTasks");
     if (dailyList && !dailyList.__boundChange) {
-      dailyList.addEventListener("change", () => {
-        // Daily 우선 정책 유지: DOM 기준 즉시 재계산
-        updateProgressUsingDailyOrWorkout(null);
-      });
+      dailyList.addEventListener("change", () => updateProgressUsingDailyOrWorkout(null));
       dailyList.__boundChange = true;
     }
+
+    // (선택) 인라인 추가
+    bindInlineAddForDashboard();
   });
 })();
