@@ -38,7 +38,7 @@
     background:#dbeafe; border:1px solid #93c5fd;
     border-radius:8px; padding:2px 8px; font-weight:700;
   }
-  #plan-wizard fieldset.card label{
+  #plan-wizard fieldset.card .form-row{
     display:grid; grid-template-columns:110px 1fr;
     gap:8px; align-items:center; margin:6px 0;
   }
@@ -47,6 +47,14 @@
   #plan-wizard fieldset.card select{
     background:#fff; color:#000 !important; border:1px solid #93c5fd;
     border-radius:8px; padding:6px 8px;
+  }
+
+  /* 스크린리더 전용 */
+  .sr-only {
+    position:absolute !important;
+    width:1px;height:1px;
+    padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0;
   }
 </style>
 
@@ -62,27 +70,30 @@
         <button type="button" class="btn btn--ghost" id="btn-close-wizard" aria-label="닫기">✕</button>
       </header>
 
+      <!-- 라이브 알림 영역 -->
+      <div id="wizard-aria-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
       <!-- 본문(스크롤) -->
       <div class="wizard-body">
-        <section>
-          <h4>Targets</h4>
-          <div id="pw-targets">Loading...</div>
+        <section aria-labelledby="pw-targets-title">
+          <h4 id="pw-targets-title">Targets</h4>
+          <div id="pw-targets" aria-busy="false">Loading...</div>
         </section>
 
-        <section id="step-exercises" style="display:none; margin-top:12px;">
-          <h4>Exercises (<span id="pw-picked-target"></span>)</h4>
-          <div id="pw-ex-list"></div>
+        <section id="step-exercises" aria-labelledby="pw-exercises-title" style="display:none; margin-top:12px;">
+          <h4 id="pw-exercises-title">Exercises (<span id="pw-picked-target"></span>)</h4>
+          <div id="pw-ex-list" aria-busy="false"></div>
         </section>
 
-        <section style="margin-top:12px;">
-          <h4>Params</h4>
+        <section aria-labelledby="pw-params-title" style="margin-top:12px;">
+          <h4 id="pw-params-title">Params</h4>
           <div id="pw-params"><em>운동을 선택하세요</em></div>
         </section>
       </div>
 
       <!-- 하단 고정 액션바 -->
       <div class="wizard-actions" data-actions>
-        <button id="btn-create-tasks" class="btn btn--primary">선택 항목으로 Task 생성</button>
+        <button id="btn-create-tasks" class="btn btn--primary" aria-controls="pw-params">선택 항목으로 Task 생성</button>
         <button id="btn-cancel-wizard" class="btn btn--ghost">닫기</button>
       </div>
     </section>
@@ -98,6 +109,13 @@
   const $exList  = document.getElementById('pw-ex-list');
   const $params  = document.getElementById('pw-params');
   const $picked  = document.getElementById('pw-picked-target');
+  const $live    = document.getElementById('wizard-aria-live');
+
+  function announce(msg){
+    if(!$live) return;
+    $live.textContent = '';
+    setTimeout(()=>{ $live.textContent = msg; }, 10);
+  }
 
   // CSRF
   function getCookie(name){
@@ -157,6 +175,8 @@
     if (step) step.style.display = 'none';
     $exList.textContent = '';
     $params.innerHTML = '<em>운동을 선택하세요</em>';
+
+    announce('플랜 위자드가 열렸습니다.');
     loadTargets();
   }
 
@@ -181,6 +201,8 @@
       $modal.setAttribute('aria-hidden','true');
       $modal.style.display = 'none';
     });
+
+    announce('플랜 위자드가 닫혔습니다.');
   }
 
   window.openPlanWizard  = openPlanWizard;
@@ -197,6 +219,7 @@
 
   // 1) 타겟 목록
   async function loadTargets() {
+    $targets.setAttribute('aria-busy','true');
     $targets.textContent = 'Loading...';
     try {
       const res = await fetch(`${API}/exercises/targets/`, {
@@ -207,20 +230,35 @@
       const data = await res.json();
       const targets = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
       if (!targets.length) { $targets.innerHTML = '<em>No targets</em>'; return; }
-      $targets.innerHTML = targets.map(t => `<button class="btn btn--ghost" data-target="${t}">${t}</button>`).join(' ');
+
+      // 버튼들에 id/aria-pressed 부여
+      $targets.innerHTML = targets.map((t, i) => `
+        <button class="btn btn--ghost" id="pw-target-${i}" data-target="${t}" aria-pressed="false">${t}</button>
+      `).join(' ');
       $targets.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('click', () => loadExercises(btn.dataset.target));
+        btn.addEventListener('click', () => loadExercises(btn.dataset.target, btn));
       });
+      announce('타겟 목록이 로드되었습니다.');
     } catch (e) {
       console.error(e);
       $targets.innerHTML = '<em>로드 실패</em>';
+      announce('타겟 목록을 불러오지 못했습니다.');
+    } finally {
+      $targets.setAttribute('aria-busy','false');
     }
   }
 
   // 2) 타겟별 운동 목록
-  async function loadExercises(target) {
+  async function loadExercises(target, btnEl) {
+    if (btnEl) {
+      // aria-pressed 토글
+      $targets.querySelectorAll('button[aria-pressed]').forEach(b => b.setAttribute('aria-pressed','false'));
+      btnEl.setAttribute('aria-pressed', 'true');
+    }
     $picked.textContent = target;
-    document.getElementById('step-exercises').style.display = '';
+    const step = document.getElementById('step-exercises');
+    step.style.display = '';
+    $exList.setAttribute('aria-busy','true');
     $exList.innerHTML = 'Loading...';
     try {
       const res = await fetch(`${API}/exercises/?target=${encodeURIComponent(target)}`, {
@@ -230,16 +268,32 @@
       if (res.status === 401) { $exList.innerHTML = '로그인이 필요합니다'; return; }
       const data = await res.json();
       const items = Array.isArray(data) ? data : (Array.isArray(data?.results) ? data.results : []);
-      $exList.innerHTML = items.map(x => `
-        <label style="display:block;margin:4px 0">
-          <input type="checkbox" name="ex" value="${x.id}" data-name="${x.name}">
-          ${x.name} <small>(${x.target})</small>
-        </label>
-      `).join('');
+      if (!items.length) {
+        $exList.innerHTML = '<em>해당 타겟의 운동이 없습니다</em>';
+        announce(`${target} 타겟의 운동이 없습니다.`);
+        renderParamEditors([]); // 파라미터 영역 초기화
+        return;
+      }
+
+      // 체크박스 + label for/id 매핑
+      $exList.innerHTML = items.map((x, idx) => {
+        const cid = `ex-${x.id}-${idx}`;
+        return `
+          <div class="form-row" style="grid-template-columns:24px 1fr;">
+            <input id="${cid}" type="checkbox" name="ex" value="${x.id}" data-name="${x.name}" aria-labelledby="${cid}-lbl">
+            <label id="${cid}-lbl" for="${cid}">${x.name} <small>(${x.target})</small></label>
+          </div>
+        `;
+      }).join('');
+
       renderParamEditors(items);
+      announce(`${target} 타겟의 운동 목록이 로드되었습니다.`);
     } catch (e) {
       console.error(e);
       $exList.innerHTML = '<em>로드 실패</em>';
+      announce('운동 목록을 불러오지 못했습니다.');
+    } finally {
+      $exList.setAttribute('aria-busy','false');
     }
   }
 
@@ -250,6 +304,7 @@
       chk.addEventListener('change', () => {
         if (chk.checked) pickedIds.add(+chk.value); else pickedIds.delete(+chk.value);
         drawParams([...pickedIds]);
+        announce(chk.checked ? '운동이 선택되었습니다.' : '운동 선택이 해제되었습니다.');
       });
     });
     drawParams([]);
@@ -257,24 +312,62 @@
 
   function drawParams(ids) {
     if (!ids.length) { $params.innerHTML = '<em>운동을 선택하세요</em>'; return; }
-    $params.innerHTML = ids.map((id, i) => `
-      <fieldset class="card" data-ex="${id}" style="margin:8px 0;padding:8px">
+    // 각 입력마다 고유 id를 생성
+    const rows = ids.map((id, i) => {
+      const rowId = `ex-${id}`;
+      const idOrder = `${rowId}-order`;
+      const idDur   = `${rowId}-duration`;
+      const idSets  = `${rowId}-sets`;
+      const idReps  = `${rowId}-reps`;
+      const idInt   = `${rowId}-intensity`;
+      const idNote  = `${rowId}-notes`;
+      const hintId  = `${rowId}-hint`;
+
+      return `
+      <fieldset class="card" data-ex="${id}" style="margin:8px 0;padding:8px;" aria-describedby="${hintId}">
         <legend>Exercise #${id}</legend>
-        <label>순서 <input name="order" type="number" value="${i+1}" min="1"></label>
-        <label>시간(분) <input name="duration" type="number" value="20" min="1"></label>
-        <label>세트 <input name="sets" type="number" value="3" min="1"></label>
-        <label>반복 <input name="reps" type="number" value="10" min="1"></label>
-        <label>강도
-          <select name="intensity">
+
+        <div id="${hintId}" class="sr-only">아래 필드를 채워 생성 버튼을 누르면 Task가 만들어집니다.</div>
+
+        <div class="form-row">
+          <label for="${idOrder}">순서</label>
+          <input id="${idOrder}" name="order" type="number" value="${i+1}" min="1" inputmode="numeric">
+        </div>
+
+        <div class="form-row">
+          <label for="${idDur}">시간(분)</label>
+          <input id="${idDur}" name="duration" type="number" value="20" min="1" inputmode="numeric">
+        </div>
+
+        <div class="form-row">
+          <label for="${idSets}">세트</label>
+          <input id="${idSets}" name="sets" type="number" value="3" min="1" inputmode="numeric">
+        </div>
+
+        <div class="form-row">
+          <label for="${idReps}">반복</label>
+          <input id="${idReps}" name="reps" type="number" value="10" min="1" inputmode="numeric">
+        </div>
+
+        <div class="form-row">
+          <label for="${idInt}">강도</label>
+          <select id="${idInt}" name="intensity">
             <option value="low">low</option>
             <option value="medium" selected>medium</option>
             <option value="high">high</option>
           </select>
-        </label>
-        <label>비고 <input name="notes" type="text" placeholder=""></label>
+        </div>
+
+        <div class="form-row">
+          <label for="${idNote}">비고</label>
+          <input id="${idNote}" name="notes" type="text" placeholder="">
+        </div>
+
         <input name="exercise_id" type="hidden" value="${id}">
-      </fieldset>
-    `).join('');
+      </fieldset>`;
+    });
+
+    $params.innerHTML = rows.join('');
   }
 
   // 4) TaskItem 생성 → 화면 갱신
@@ -282,6 +375,8 @@
     if (!window.currentPlan) return alert('Plan not loaded. 먼저 플랜을 생성/불러오세요.');
     const groups = Array.from(document.querySelectorAll('#pw-params fieldset'));
     if (!groups.length) return alert('선택된 운동이 없습니다.');
+
+    announce('선택된 항목으로 Task를 생성합니다.');
 
     const payloads = groups.map((g, idx) => {
       const get = (name) => g.querySelector(`[name=${name}]`)?.value;
@@ -315,6 +410,9 @@
       }
     }
 
+    if (ok) announce(`Task ${ok}개가 생성되었습니다.`);
+    if (fail) announce(`Task ${fail}개 생성에 실패했습니다.`);
+
     alert(`Created ${ok}/${payloads.length} tasks`);
     if (!ok) return;
 
@@ -342,7 +440,9 @@
       if (typeof window.closePlanWizard === 'function') {
         window.closePlanWizard();
       }
-    } catch (e) {}
+    } catch (e) {
+      announce('생성 후 갱신 과정에서 오류가 발생했습니다.');
+    }
   });
 
   // 외부 버튼에서도 열리게(선택)

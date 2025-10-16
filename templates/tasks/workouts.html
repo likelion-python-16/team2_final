@@ -47,6 +47,8 @@
         <input type="date" id="wk-plan-date" />
         <a class="health-button-secondary" href="#" id="wk-load-by-date" aria-label="선택한 날짜 로드">Load by Date</a>
         <a class="health-button-secondary" href="#" id="wk-ensure-today" aria-label="오늘 플랜 생성 또는 보장">Generate New Plan</a>
+        <button type="button" id="wk-ensure-today" onclick="openPlanWizard()">Generate New Plan</button>
+
 
       </div>
     </div>
@@ -118,6 +120,7 @@
   {{ block.super }}
   <script src="{% static 'js/workouts.js' %}"></script>
   <script src="{% static 'js/workouts.bind.js' %}?v=20251016"></script>
+  <script src="{% static 'js/wizard.a11y.js' %}"></script>
   <script>
     // ========= 공통 =========
     const API = window.API || "/api";
