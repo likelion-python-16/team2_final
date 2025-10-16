@@ -17,11 +17,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 포트
-EXPOSE 8001
+EXPOSE 8000
 
 # 헬스체크(옵션)
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -fsS http://localhost:8001/healthz || exit 1
+  CMD curl -fsS http://localhost:8000/healthz || exit 1
 
 # 실행
-CMD ["bash", "-lc", "python manage.py migrate && python manage.py runserver 0.0.0.0:8001"]
+CMD ["bash", "-lc", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]

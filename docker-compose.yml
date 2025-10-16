@@ -1,42 +1,4 @@
 services:
-  api:
-    build:
-      context: .               # ✅ 루트 기준 (./)
-      dockerfile: Dockerfile   # ✅ Dockerfile도 루트에 있어야 함
-    image: team2/api:dev
-    container_name: team2_final_api
-    ports:
-      - "8000:8000"
-    environment:
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,host.docker.internal"
-      DJANGO_DEBUG: "False"
-      DJANGO_TIME_ZONE: "Asia/Seoul"
-      DB_ENGINE: "postgres"
-      POSTGRES_DB: "team2_final"
-      POSTGRES_USER: "team2_user"
-      POSTGRES_PASSWORD: "supersecret"
-      POSTGRES_HOST: "db"
-      POSTGRES_PORT: "5432"
-      DJANGO_SETTINGS_MODULE: "team2_final.settings"
-      DJANGO_SECRET_KEY: "wLfHydVT0ct0BOkofS6xFwD3uh8tSIV3PxvSAbwFk_2mkRx6J3qUUav2Ji3yEiXkPuVWo9Ud3y6EgHuWIC1kVg"
-    volumes:
-      - ./:/app                # ✅ 루트 전체 마운트
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-    command: >
-      sh -c "python manage.py collectstatic --noinput &&
-             python manage.py migrate &&
-             exec gunicorn team2_final.wsgi:application -b 0.0.0.0:8000
-             --workers 3 --threads 2 --timeout 60 --chdir /app"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 6
-      start_period: 15s
-
   db:
     image: postgres:16
     container_name: team2_final_db
@@ -44,24 +6,62 @@ services:
       POSTGRES_DB: team2_final
       POSTGRES_USER: team2_user
       POSTGRES_PASSWORD: supersecret
-    ports:
-      - "5432:5432"
+    # ports:                         # ← 필요 없으면 막아 충돌 방지
+    #   - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U team2_user -d team2_final"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
     restart: unless-stopped
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: team2/api:dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,0.0.0.0,host.docker.internal"
+      DJANGO_DEBUG: "False"               # ← whitenoise 구성돼 있어야 안전
+      DJANGO_TIME_ZONE: "Asia/Seoul"
+      DJANGO_SETTINGS_MODULE: "team2_final.settings"
+      DJANGO_SECRET_KEY: "wLfHydVT0ct0BOkofS6xFwD3uh8tSIV3Px6..."
+      DB_ENGINE: "postgres"
+      POSTGRES_DB: "team2_final"
+      POSTGRES_USER: "team2_user"
+      POSTGRES_PASSWORD: "supersecret"
+      POSTGRES_HOST: "db"
+      POSTGRES_PORT: "5432"
+    ports:
+      - "8000:8000"
+    # volumes:                       # ← 재현성 위해 주석 처리(이미지 그대로 사용)
+    restart: unless-stopped
+    command: >
+      sh -c "
+        python manage.py collectstatic --noinput &&
+        python manage.py migrate --noinput &&
+        exec gunicorn team2_final.wsgi:application
+          -b 0.0.0.0:8000 --workers 3 --threads 2 --timeout 60 --chdir /app
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 45s                 # ← 여유를 조금 더
+
+  # (선택) Prometheus — /metrics 있는 경우에만 유효
   prometheus:
     image: prom/prometheus:latest
     container_name: team2_final_prom
     ports:
       - "9090:9090"
     volumes:
-      # prometheus.yml 위치 확인 후 맞게 경로 조정
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       api:

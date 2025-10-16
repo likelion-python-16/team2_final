@@ -2,7 +2,7 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: "django"
-    metrics_path: /metrics
+  - job_name: 'team2_api'
     static_configs:
-      - targets: ["api:8000"]   # 컨테이너 서비스명/포트
+      - targets: ['api:8000']    # compose 서비스명 사용
+    metrics_path: /metrics       # 지표 엔드포인트가 있을 때만

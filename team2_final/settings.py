@@ -28,7 +28,7 @@ SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# SECRET_KEY = 'django-insecure-8ro5jdf4f%7^yw+pft$ari3*&qeuaa*^p&$5t2x!c(e+svry++'
+# SECRET_KEY = 'django-insecure-8ro5jdf4f%7^ywpft$ari3*&qeuaa*^p&$5t2x!c(esvry'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
@@ -50,7 +50,7 @@ for h in ALLOWED_HOSTS:
     if not h:
         continue
     # 개발용 8000 포트도 허용 (필요 시 제거)
-    CSRF_TRUSTED_ORIGINS += [f"http://{h}", f"https://{h}", f"http://{h}:8000", f"https://{h}:8000"]
+    CSRF_TRUSTED_ORIGINS = [f"http://{h}", f"https://{h}", f"http://{h}:8000", f"https://{h}:8000"]
 
 # ── 개발환경용 보안 기본값 (프록시/터널 사용 시 HTTPS 오인 방지) ──
 # http→https 강제 금지
@@ -158,23 +158,44 @@ WSGI_APPLICATION = 'team2_final.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 DB_ENGINE = os.getenv("DB_ENGINE", "sqlite").lower()
-if DB_ENGINE == "postgres":
+
+# postgres 엔진 문자열 허용 범위 확장
+_is_postgres = DB_ENGINE in {"postgres", "postgresql", "psql"}
+
+if _is_postgres:
+    # 로컬 도커 컨테이너에서 호스트(Postgres)에 붙고 싶은 경우:
+    #   DOCKER_LOCAL=1 를 주면 POSTGRES_HOST 기본값이 host.docker.internal 로 전환됨.
+    #   (compose/k8s 에서는 DOCKER_LOCAL 미지정 → 기본값 'db' 유지)
+    _docker_local = os.getenv("DOCKER_LOCAL", "0") == "1"
+    _default_host = "host.docker.internal" if _docker_local else "db"
+
+    # 환경변수로 덮어쓸 수 있음(POSTGRES_HOST 가 설정되어 있으면 그대로 사용)
+    _pg_host = os.getenv("POSTGRES_HOST", _default_host)
+
+    # 커넥션 유지시간 ENV 지원 (기본 60초)
+    try:
+        _conn_max_age = int(os.getenv("POSTGRES_CONN_MAX_AGE", os.getenv("CONN_MAX_AGE", "60")))
+    except ValueError:
+        _conn_max_age = 60
+
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
             "NAME": os.getenv("POSTGRES_DB", "team2_final"),
             "USER": os.getenv("POSTGRES_USER", "team2_user"),
             "PASSWORD": os.getenv("POSTGRES_PASSWORD", "supersecret"),
-            "HOST": os.getenv("POSTGRES_HOST", "db"),
+            "HOST": _pg_host,
             "PORT": os.getenv("POSTGRES_PORT", "5432"),
-            "CONN_MAX_AGE": 60,
+            "CONN_MAX_AGE": _conn_max_age,
         }
     }
 else:
+    # 기본은 SQLite 로 스모크에 용이
+    _sqlite_path = os.getenv("SQLITE_PATH", BASE_DIR / "db.sqlite3")
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": os.getenv("SQLITE_PATH", BASE_DIR / "db.sqlite3"),
+            "NAME": _sqlite_path,
         }
     }
 

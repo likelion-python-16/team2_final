@@ -1,4 +1,3 @@
-# team2_final/urls.py
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic import RedirectView
@@ -12,7 +11,7 @@ from rest_framework_simplejwt.views import (
 )
 
 from .today_views import today_summary
-from .healthz import healthz, simple_token
+from .healthz import healthz, simple_token, readyz
 from . import views
 from .views import landing
 
@@ -28,7 +27,12 @@ from .auth_views import (
 
 urlpatterns = [
     # ---------- 헬스체크 / 오늘 요약 ----------
-    path("healthz", healthz, name="healthz"),
+    path("healthz/", healthz, name="healthz"),
+    path("readyz/", readyz, name="readyz"),
+    # 호환용(슬래시 없이 접근해도 동작)
+    path("healthz", healthz),
+    path("readyz", readyz),
+
     path("auth/simple-token", simple_token, name="simple_token"),
     path("api/today/", today_summary, name="today-summary"),
 
