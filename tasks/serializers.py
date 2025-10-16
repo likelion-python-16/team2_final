@@ -1,8 +1,9 @@
 # tasks/serializers.py
 from rest_framework import serializers
+
 from .models import Exercise, WorkoutPlan, TaskItem
 
-# WorkoutLog 모델이 프로젝트에 있을 수 있으므로 안전하게 로드
+# 선택적: 프로젝트에 있을 수도 있는 WorkoutLog
 try:
     from .models import WorkoutLog
     HAS_WORKOUT_LOG = True
@@ -88,7 +89,6 @@ class TaskItemSerializer(serializers.ModelSerializer):
 # - related_name="tasks"로 정의한 프로젝트도 지원
 # ---------------------------------------
 class WorkoutPlanSerializer(serializers.ModelSerializer):
-    # 역참조를 동적으로 안전 처리
     tasks = serializers.SerializerMethodField(read_only=True)
     tasks_count = serializers.SerializerMethodField(read_only=True)
     total_duration_min = serializers.SerializerMethodField(read_only=True)
@@ -110,7 +110,7 @@ class WorkoutPlanSerializer(serializers.ModelSerializer):
             "ai_confidence",
             "created_at",
             "updated_at",
-            # 읽기 전용 확장
+            # 계산/확장 필드
             "tasks",
             "tasks_count",
             "total_duration_min",
@@ -148,7 +148,6 @@ class WorkoutPlanSerializer(serializers.ModelSerializer):
     def get_tasks_count(self, obj) -> int:
         qs = self._task_qs(obj)
         try:
-            # qs가 실제 쿼리셋이면 count() 사용
             return qs.count() if hasattr(qs, "count") else len(list(qs))
         except Exception:
             return 0
@@ -200,7 +199,6 @@ class BulkTaskItemSerializer(serializers.Serializer):
     def validate_intensity(self, v):
         if v == "mid":
             return TaskItem.IntensityLevel.MEDIUM
-        # choices 검증(문자 입력 시)
         valid = [c[0] for c in TaskItem.IntensityLevel.choices]
         if v not in valid:
             raise serializers.ValidationError(f"intensity는 {valid} 중 하나여야 합니다.")

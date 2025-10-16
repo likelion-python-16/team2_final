@@ -587,3 +587,121 @@
     bindInlineAddForDashboard();
   });
 })();
+
+// Today Summary / Insights / Recommendations (추가 모듈)
+// 의존: window.api(get/post/patch/del), window.dateUtils.todayISO?, B1~B3에서 쓰는 DOM/스타일
+// 필요 DOM ids: #sum-total-min, #sum-total-tasks, #sum-completed-tasks, #sum-total-kcal,
+//               #insight-bullets, #recommendations, (선택) #selected-date, #toast
+// ─────────────────────────────────────────────────────────────
+(function () {
+  "use strict";
+
+  const $  = (sel, p = document) => p.querySelector(sel);
+  const $$ = (sel, p = document) => Array.from(p.querySelectorAll(sel));
+
+  function todayISO() {
+    return (window.dateUtils?.todayISO?.()) || new Date().toISOString().slice(0, 10);
+  }
+  function selectedDate() {
+    const el = $("#selected-date");
+    return (el && el.value) ? el.value : todayISO();
+  }
+  function setTextSafe(el, val, fallback = "0") {
+    if (!el) return;
+    const n = Number.isFinite(Number(val)) ? Number(val) : fallback;
+    el.textContent = String(n);
+  }
+  function showToast(msg) {
+    const t = $("#toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.remove("hidden");
+    setTimeout(() => t.classList.add("hidden"), 2200);
+  }
+
+  // ----- render helpers -----
+  function renderBullets(container, items) {
+    if (!container) return;
+    container.innerHTML = "";
+    const ul = document.createElement("ul");
+    (items || []).forEach((txt) => {
+      const li = document.createElement("li");
+      li.textContent = String(txt);
+      ul.appendChild(li);
+    });
+    container.appendChild(ul);
+  }
+  function renderRecommendations(container, recos) {
+    if (!container) return;
+    container.innerHTML = "";
+    (recos || []).forEach((r) => {
+      const row = document.createElement("div");
+      row.className = "reco-item";
+      const title = document.createElement("div");
+      title.className = "reco-title";
+      title.textContent = r.title || "";
+      row.appendChild(title);
+      if (r.action_text && r.action_url) {
+        const a = document.createElement("a");
+        a.href = r.action_url;
+        a.className = "reco-action";
+        a.textContent = r.action_text;
+        row.appendChild(a);
+      }
+      container.appendChild(row);
+    });
+  }
+
+  // ----- loaders -----
+  async function loadSummary() {
+    const d = selectedDate();
+    const res = await api.get(`/api/workoutplans/summary/?date=${encodeURIComponent(d)}`);
+    setTextSafe($("#sum-total-min"),        res?.total_min ?? 0);
+    setTextSafe($("#sum-total-tasks"),      res?.tasks_count ?? 0);
+    setTextSafe($("#sum-completed-tasks"),  res?.completed_count ?? 0);
+    setTextSafe($("#sum-total-kcal"),       res?.calories ?? 0);
+  }
+  async function loadInsights() {
+    const d = selectedDate();
+    const res = await api.get(`/api/insights/today/?date=${encodeURIComponent(d)}`);
+    renderBullets($("#insight-bullets"), res?.bullets || []);
+  }
+  async function loadRecommendations() {
+    const d = selectedDate();
+    const res = await api.get(`/api/recommendations/?date=${encodeURIComponent(d)}`);
+    renderRecommendations($("#recommendations"), res || []);
+  }
+
+  async function refreshAll() {
+    try {
+      await Promise.all([loadSummary(), loadInsights(), loadRecommendations()]);
+    } catch (e) {
+      console.error(e);
+      showToast("요약/인사이트 로딩 실패");
+      // 실패 시 숫자 0 리셋
+      setTextSafe($("#sum-total-min"), 0);
+      setTextSafe($("#sum-total-tasks"), 0);
+      setTextSafe($("#sum-completed-tasks"), 0);
+      setTextSafe($("#sum-total-kcal"), 0);
+      renderBullets($("#insight-bullets"), []);
+      renderRecommendations($("#recommendations"), []);
+    }
+  }
+
+  // 이벤트 연결: 기존 B1~B3와 공존
+  document.addEventListener("DOMContentLoaded", refreshAll);
+  document.addEventListener("plan:updated", refreshAll);
+  document.addEventListener("week:navigate", (ev) => {
+    const d = ev?.detail?.date;
+    if (typeof d === "string" && d.length === 10) {
+      const el = $("#selected-date");
+      if (el) el.value = d;
+      refreshAll();
+    }
+  });
+  const dateInput = $("#selected-date");
+  if (dateInput) dateInput.addEventListener("change", refreshAll);
+
+  // 외부에서 수동 갱신 가능
+  window.DashboardSummary = { refreshAll };
+})();

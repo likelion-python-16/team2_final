@@ -13,11 +13,14 @@
 
   <header class="dashboard-header">
     <div class="dashboard-header__text">
-      <!-- ✅ B2 훅: 제목 동적화 -->
+      <!-- ✅ B2 훅: 제목 동적화 (기존 유지) -->
       <h1 data-plan-title>Dashboard</h1>
       <p>AI 코칭과 함께 오늘의 목표를 확인하세요.</p>
     </div>
-    <div class="dashboard-header__actions">
+    <div class="dashboard-header__actions" style="gap:.5rem; align-items:center;">
+      <!-- ✅ C7 훅: 선택 날짜 (없으면 JS에서 오늘로 대체) -->
+      <label for="selected-date" class="sr-only">선택 날짜</label>
+      <input id="selected-date" type="date" value="{{ today|date:'Y-m-d' }}" />
       <a class="btn btn--ghost" href="/users/profile/">Profile</a>
       <a class="btn btn--primary" href="#insights">AI Insights</a>
     </div>
@@ -40,7 +43,7 @@
         </div>
 
         <div class="grid grid--3">
-          <!-- 운동 합계 -->
+          <!-- 운동 합계 (서버 값 유지) -->
           <div class="stat-tile">
             <div class="stat-tile__label">Workout Minutes</div>
             <div class="stat-tile__value">
@@ -48,7 +51,7 @@
             </div>
           </div>
 
-          <!-- 식단 합계 -->
+          <!-- 식단 합계 (서버 값 유지) -->
           <div class="stat-tile">
             <div class="stat-tile__label">Calories / Macros</div>
             <div class="stat-tile__value">
@@ -61,12 +64,32 @@
             </div>
           </div>
 
-          <!-- 목표 합계 -->
+          <!-- 목표 합계 (서버 값 유지) -->
           <div class="stat-tile">
             <div class="stat-tile__label">Daily Goals</div>
             <div class="stat-tile__value">
               {{ today_totals.goals.completed|default:0 }}<span class="stat-tile__unit"> / </span>{{ today_totals.goals.total|default:0 }}
             </div>
+          </div>
+        </div>
+
+        <!-- ✅ C7: Workout Summary (API 라이브) — 기존 값 위에 “추가”만 -->
+        <div class="grid grid--4" style="margin-top:12px;">
+          <div class="stat-mini">
+            <div class="stat-mini__label">총 분</div>
+            <div class="stat-mini__value"><strong id="sum-total-min">0</strong></div>
+          </div>
+          <div class="stat-mini">
+            <div class="stat-mini__label">할 일</div>
+            <div class="stat-mini__value"><strong id="sum-total-tasks">0</strong></div>
+          </div>
+          <div class="stat-mini">
+            <div class="stat-mini__label">완료</div>
+            <div class="stat-mini__value"><strong id="sum-completed-tasks">0</strong></div>
+          </div>
+          <div class="stat-mini">
+            <div class="stat-mini__label">칼로리</div>
+            <div class="stat-mini__value"><strong id="sum-total-kcal">0</strong></div>
           </div>
         </div>
       </article>
@@ -101,7 +124,7 @@
           {% endfor %}
         </div>
 
-        <!-- ✅ B3 링 업데이트용 미니멀 SVG(추가만) -->
+        <!-- ✅ B3 링 업데이트용 미니 SVG(추가) -->
         <div class="progress-ring-row" aria-hidden="true" style="display:flex;gap:12px;align-items:center;margin-top:8px;">
           <svg class="progress-ring" width="120" height="120">
             <circle class="progress-ring__value-circle" r="54" cx="60" cy="60" stroke-width="12" fill="transparent"></circle>
@@ -171,7 +194,7 @@
         </ul>
       </article>
 
-      <!-- ✅ B3 전용: Workout TaskItem 체크리스트(실데이터 바인딩 전용, 추가만) -->
+      <!-- ✅ B3 전용: Workout TaskItem 체크리스트(실데이터 바인딩용, 추가) -->
       <article class="dashboard-card">
         <div class="dashboard-card__heading">
           <div>
@@ -182,16 +205,15 @@
         <!-- JS가 채우는 리스트 -->
         <ul class="task-card__list" data-task-list></ul>
         <form data-inline-task-form class="row" style="gap:8px; margin-top:10px;">
-        <input type="text"  data-new-name placeholder="Exercise name" required style="min-width:160px;">
-        <input type="number" data-new-sets placeholder="sets" min="0" step="1" style="width:80px;">
-        <input type="number" data-new-reps placeholder="reps" min="0" step="1" style="width:80px;">
-        <input type="number" data-new-min  placeholder="min"  min="0" step="1" style="width:90px;">
-        <button type="submit" class="btn">Add</button>
-</form>
-
+          <input type="text"  data-new-name placeholder="Exercise name" required style="min-width:160px;">
+          <input type="number" data-new-sets placeholder="sets" min="0" step="1" style="width:80px;">
+          <input type="number" data-new-reps placeholder="reps" min="0" step="1" style="width:80px;">
+          <input type="number" data-new-min  placeholder="min"  min="0" step="1" style="width:90px;">
+          <button type="submit" class="btn">Add</button>
+        </form>
       </article>
 
-      <!-- AI Insights -->
+      <!-- AI Insights (서버 렌더 유지) -->
       <article class="dashboard-card" id="insights">
         <div class="dashboard-card__heading">
           <div>
@@ -212,13 +234,19 @@
             </div>
           {% endfor %}
         </div>
+
+        <!-- ✅ C8: Live Today Insights (API bullets) 추가 영역 -->
+        <div class="insight-stack" style="margin-top:.75rem;">
+          <h3 class="muted" style="margin-bottom:.25rem;">Live (API)</h3>
+          <div id="insight-bullets"><!-- JS가 bullet 목록 렌더 --></div>
+        </div>
       </article>
     </section>
 
     <!-- ====== Column B ====== -->
     <section class="dashboard-column">
 
-      <!-- Recommendations -->
+      <!-- Recommendations (서버 렌더 유지) -->
       <article class="dashboard-card" id="recommend">
         <div class="dashboard-card__heading">
           <div>
@@ -239,6 +267,12 @@
             <li class="muted">No recommended workouts yet. Update your goals to get suggestions.</li>
           {% endfor %}
         </ul>
+
+        <!-- ✅ C9: Live Recommendations (API) 추가 영역 -->
+        <div class="recommend-list" style="margin-top:.75rem;">
+          <h3 class="muted" style="margin-bottom:.25rem;">Live (API)</h3>
+          <div id="recommendations"><!-- JS가 추천 렌더 --></div>
+        </div>
       </article>
 
       <!-- Quick Actions -->
@@ -254,7 +288,7 @@
                 {% if action.icon == 'zap' %}
                   <svg viewBox="0 0 24 24" focusable="false"><path d="M13 2 3 14h7l-1 8 10-12h-7Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 {% elif action.icon == 'camera' %}
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm-9 9V8a3 3 0 0 1 3-3h2.2a1 1 0 0 0 .83-.44l.94-1.41A1.5 1.5 0 0 1 11.18 2h1.64a1.5 1.5 0 0 1 1.21.65l.94 1.41a1 1 0 0 0 .83.44H18a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="M12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm-9 9V8a3 3 0 0 1 3-3h2.2a1 1 0 0 0 .83-.44l.94-1.41A1.5 1.5 0 0 1 11.18 2h1.64a1.5 1.5 0 0 1 1.21.65l.94 1.41a 1 1 0 0 0 .83.44H18a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 {% elif action.icon == 'trend' %}
                   <svg viewBox="0 0 24 24" focusable="false"><path d="m3 17 6-6 4 4 7-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
                 {% else %}
@@ -284,6 +318,9 @@
   </main>
 
   <a class="floating-button" href="#" aria-label="빠른 추가">＋</a>
+
+  <!-- ✅ C7~C9: 토스트 (옵션) -->
+  <div id="toast" class="toast hidden" role="alert" aria-live="polite"></div>
 </div>
 {% endblock %}
 

@@ -1,38 +1,53 @@
 # tasks/api_views.py
 from datetime import datetime
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, DateField
+from django.db.models.functions import Cast
 from django.core.exceptions import FieldError
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.conf import settings
 
 from .models import TaskItem, WorkoutPlan
 
+# 전역 설정값만 유지 (done_min 전역 사용 금지)
+kcal_per_min = getattr(settings, "WORKOUT_KCAL_PER_MIN", 5)
+
 
 def parse_yyyy_mm_dd(s: str):
+    """'YYYY-MM-DD' → date. 실패 시 None."""
     try:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return None
 
 
-def base_qs(date_str: str, plan_id: str | None):
+def filter_by_user(qs, user):
     """
-    plan_id가 있으면 그 플랜의 TaskItem,
-    없으면 '그 날짜'의 TaskItem을 최대한 안전하게 찾는다.
-    - WorkoutPlan 날짜 필드 후보 여러 개 시도
-    - TaskItem 날짜/생성일 후보 여러 개 시도
+    로그인 사용자 스코프 제한.
+    - workout_plan__user 우선
+    - TaskItem.user 대안
+    - 둘 다 없으면 그대로 반환
     """
-    d = parse_yyyy_mm_dd(date_str)
-    if not d:
-        raise ValueError("invalid date format")
+    try:
+        return qs.filter(workout_plan__user=user)
+    except FieldError:
+        pass
+    try:
+        return qs.filter(user=user)
+    except FieldError:
+        pass
+    return qs
 
-    qs = TaskItem.objects.select_related("workout_plan", "exercise")
 
-    if plan_id:
-        return qs.filter(workout_plan_id=plan_id)
-
-    # 1) WorkoutPlan 쪽 날짜 필드 후보
+def any_date_filter(qs, d):
+    """
+    주어진 date d로 TaskItem을 최대한 날짜 매칭.
+    1) WorkoutPlan 쪽 날짜 후보
+    2) TaskItem 쪽 날짜/생성일 후보
+    매칭되면 즉시 반환, 전부 실패하면 None.
+    """
+    # 1) WorkoutPlan 날짜 필드 후보
     plan_date_fields = ["date", "plan_date", "scheduled_date", "scheduled_for", "day"]
     for f in plan_date_fields:
         try:
@@ -40,7 +55,7 @@ def base_qs(date_str: str, plan_id: str | None):
         except FieldError:
             continue
 
-    # 2) TaskItem 자체 날짜/생성일 후보
+    # 2) TaskItem 날짜/생성일 후보
     task_date_fields = ["date", "workout_date", "scheduled_date", "created_at__date", "completed_at__date"]
     for f in task_date_fields:
         try:
@@ -48,16 +63,73 @@ def base_qs(date_str: str, plan_id: str | None):
         except FieldError:
             continue
 
-    # 3) 최후의 보루
-    try:
-        return qs.filter(created_at__date=d)
-    except FieldError:
-        return qs.none()
+    return None
+
+
+def latest_plan_tasks(qs):
+    """
+    날짜 매칭 실패 시 최후의 보루:
+    - 해당 유저의 가장 최근 WorkoutPlan을 골라 그 TaskItem을 반환
+    - 최근 기준은 다음 중 존재하는 필드 순서대로 정렬:
+      created_at, created, updated_at, updated, id
+    """
+    plan_ids = list(
+        qs.exclude(workout_plan__isnull=True)
+          .values_list("workout_plan_id", flat=True).distinct()
+    )
+
+    candidates = WorkoutPlan.objects.all()
+    if plan_ids:
+        candidates = candidates.filter(id__in=plan_ids)
+
+    orderings = ["-created_at", "-created", "-updated_at", "-updated", "-id"]
+    for field in orderings:
+        try:
+            latest = candidates.order_by(field).first()
+            if latest:
+                return qs.filter(workout_plan=latest)
+        except FieldError:
+            continue
+    return qs.none()
+
+
+def base_qs(request_user, date_str: str, plan_id: str | None):
+    """
+    plan_id가 있으면 해당 플랜의 TaskItem,
+    없으면 '그 날짜' TaskItem을 최대한 찾아 반환.
+    전부 실패 시 '가장 최근 플랜의 TaskItem'로 폴백.
+    """
+    d = parse_yyyy_mm_dd(date_str)
+    if not d:
+        raise ValueError("invalid date format")
+
+    qs = TaskItem.objects.select_related("workout_plan", "exercise")
+    qs = filter_by_user(qs, request_user)
+
+    if plan_id:
+        return qs.filter(workout_plan_id=plan_id)
+
+    matched = any_date_filter(qs, d)
+    if matched is not None and matched.exists():
+        return matched
+
+    for f in ["created_at", "created", "updated_at", "updated"]:
+        try:
+            casted = qs.annotate(_pdate=Cast(f"workout_plan__{f}", output_field=DateField()))
+            tmp = casted.filter(_pdate=d)
+            if tmp.exists():
+                return tmp
+        except FieldError:
+            continue
+
+    return latest_plan_tasks(qs)
 
 
 class WorkoutSummaryView(APIView):
     """
     GET /api/workoutplans/summary/?date=YYYY-MM-DD[&workout_plan=<id>]
+    - total_min: 모든 Task의 duration 합 (기존 키 유지)
+    - tasks_count, completed_count, calories (기존 키 유지)
     """
     permission_classes = [IsAuthenticated]
 
@@ -68,7 +140,7 @@ class WorkoutSummaryView(APIView):
             return Response({"detail": "date is required (YYYY-MM-DD)"}, status=400)
 
         try:
-            qs = base_qs(date_str, plan_id)
+            qs = base_qs(request.user, date_str, plan_id)
         except ValueError:
             return Response({"detail": "invalid date format"}, status=400)
 
@@ -81,8 +153,9 @@ class WorkoutSummaryView(APIView):
         tasks_count = int(agg.get("tasks_count") or 0)
         completed_count = int(agg.get("completed_count") or 0)
 
-        done_min = qs.filter(completed=True).aggregate(x=Sum("duration_min")).get("x") or 0
-        calories = int(done_min * 5)
+        # 완료된 분 합은 지역변수로 계산 (전역 X)
+        done_min = int(qs.filter(completed=True).aggregate(x=Sum("duration_min")).get("x") or 0)
+        calories = int(done_min * kcal_per_min)
 
         return Response({
             "date": date_str,
@@ -108,19 +181,19 @@ class RecommendationsView(APIView):
             return Response({"detail": "date is required"}, status=400)
 
         try:
-            qs = base_qs(date_str, plan_id)
+            qs = base_qs(request.user, date_str, plan_id)
         except ValueError:
             return Response({"detail": "invalid date format"}, status=400)
 
         agg = qs.aggregate(total=Count("id"), done=Count("id", filter=Q(completed=True)))
-        total = agg.get("total") or 0
-        done = agg.get("done") or 0
+        total = int(agg.get("total") or 0)
+        done = int(agg.get("done") or 0)
 
         recos = []
         if total == 0:
             recos.append({"title": "오늘 계획이 없어요", "action_text": "플랜 생성", "action_url": "/tasks/workouts/#wk-ensure-today"})
         else:
-            ratio = done / total if total else 0
+            ratio = done / total if total else 0.0
             if ratio < 0.34:
                 recos.append({"title": "가벼운 전신 루틴부터 워밍업 시작!"})
             elif ratio < 0.67:
@@ -145,15 +218,14 @@ class TodayInsightsView(APIView):
             return Response({"detail": "date is required"}, status=400)
 
         try:
-            qs = base_qs(date_str, plan_id)
+            qs = base_qs(request.user, date_str, plan_id)
         except ValueError:
             return Response({"detail": "invalid date format"}, status=400)
 
         bullets = []
 
-        # 대표 운동명: 여러 후보 필드 순차 시도 (exercise_name → exercise__name → 기타)
+        # 대표 운동명
         top_name = None
-        # 1) exercise_name (직접 필드)
         try:
             q1 = qs.exclude(exercise_name__isnull=True).exclude(exercise_name__exact="")
             top = list(q1.values_list("exercise_name", flat=True)[:1])
@@ -161,20 +233,13 @@ class TodayInsightsView(APIView):
                 top_name = top[0]
         except FieldError:
             pass
-
-        # 2) exercise FK가 있다면 name 필드 추정
         if not top_name:
             try:
-                top = list(
-                    qs.filter(exercise__isnull=False)
-                      .values_list("exercise__name", flat=True)[:1]
-                )
+                top = list(qs.filter(exercise__isnull=False).values_list("exercise__name", flat=True)[:1])
                 if top:
                     top_name = top[0]
             except FieldError:
                 pass
-
-        # 3) 다른 이름 필드 후보(혹시 커스텀)
         if not top_name:
             for f in ["name", "title", "label"]:
                 try:
@@ -184,7 +249,6 @@ class TodayInsightsView(APIView):
                         break
                 except FieldError:
                     continue
-
         if top_name:
             bullets.append(f"대표 운동: {top_name}")
 

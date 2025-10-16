@@ -1,32 +1,34 @@
+{# templates/partials/navbar.html #}
 <a class="logo" href="/">Healthcare</a>
 
 <nav class="nav" aria-label="주요 메뉴">
+  {% with path=request.path %}
   <ul class="nav-list">
     <li>
-      <a href="{% url 'tasks:workouts' %}"
-         class="{% if request.path|slice:':16' == '/tasks/workouts' %}is-active{% endif %}"
-         {% if request.path|slice:':16' == '/tasks/workouts' %}aria-current="page"{% endif %}>
+      <a href="/tasks/workouts/"
+         class="{% if path|slice:':16' == '/tasks/workouts' or path|slice:':17' == '/tasks/workouts/' %}is-active{% endif %}"
+         {% if path|slice:':16' == '/tasks/workouts' or path|slice:':17' == '/tasks/workouts/' %}aria-current="page"{% endif %}>
         Weekly Planner
       </a>
     </li>
     <li>
-      <a href="{% url 'tasks:meals' %}"
-         class="{% if request.path|slice:':12' == '/tasks/meals' %}is-active{% endif %}"
-         {% if request.path|slice:':12' == '/tasks/meals' %}aria-current="page"{% endif %}>
+      <a href="/tasks/meals/"
+         class="{% if path|slice:':12' == '/tasks/meals' or path|slice:':13' == '/tasks/meals/' %}is-active{% endif %}"
+         {% if path|slice:':12' == '/tasks/meals' or path|slice:':13' == '/tasks/meals/' %}aria-current="page"{% endif %}>
         Nutrition
       </a>
     </li>
     <li>
-      <a href="{% url 'tasks:dashboard' %}"
-         class="{% if request.path|slice:':15' == '/tasks/dashboard' %}is-active{% endif %}"
-         {% if request.path|slice:':15' == '/tasks/dashboard' %}aria-current="page"{% endif %}>
+      <a href="/tasks/dashboard/"
+         class="{% if path|slice:':15' == '/tasks/dashboard' or path|slice:':16' == '/tasks/dashboard/' %}is-active{% endif %}"
+         {% if path|slice:':15' == '/tasks/dashboard' or path|slice:':16' == '/tasks/dashboard/' %}aria-current="page"{% endif %}>
         Dashboard
       </a>
     </li>
     <li>
-      <a href="{% url 'user_profile' %}"
-         class="{% if request.path|slice:':8' == '/profile' %}is-active{% endif %}"
-         {% if request.path|slice:':8' == '/profile' %}aria-current="page"{% endif %}>
+      <a href="/profile/"
+         class="{% if path|slice:':8' == '/profile' or path|slice:':9' == '/profile/' %}is-active{% endif %}"
+         {% if path|slice:':8' == '/profile' or path|slice:':9' == '/profile/' %}aria-current="page"{% endif %}>
         Profile
       </a>
     </li>
@@ -36,14 +38,15 @@
     {% if request.user.is_authenticated %}
       <li class="muted" style="padding:6px 10px;">{{ request.user.username }}</li>
       <li>
-        <form method="post" action="{% url 'logout' %}" class="nav-logout">
+        <form method="post" action="/logout/" class="nav-logout">
           {% csrf_token %}
           <input type="hidden" name="next" value="{{ request.path }}">
           <button type="submit">Log Out</button>
         </form>
       </li>
     {% else %}
-      <li><a href="{% url 'login' %}?next={{ request.path }}">Login</a></li>
+      <li><a href="/login/?next={{ request.path }}">Login</a></li>
     {% endif %}
   </ul>
+  {% endwith %}
 </nav>

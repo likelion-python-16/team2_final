@@ -252,3 +252,5 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Workout/Meal Tracking API',
     'VERSION': '0.1.0',
 }
+
+WORKOUT_KCAL_PER_MIN = 5

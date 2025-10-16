@@ -1839,3 +1839,66 @@ body {
 }
 .nav-list a.is-active{font-weight:700;border-bottom:2px solid currentColor}
 .nav-list a.is-active { font-weight: 700; border-bottom: 2px solid currentColor; }
+/* 요일 버튼이 전역 button/.btn 스타일 영향 안 받게 리셋 */
+.wk-day{
+  appearance:none; -webkit-appearance:none; border-radius:10px;
+  background:#fff; border:1px solid #e5e7eb; padding:8px 10px;
+  line-height:1; font:inherit; color:inherit; box-shadow:none;
+}
+.wk-day:focus{ outline:2px solid #93c5fd; outline-offset:2px; }
+/* ── 헤더 네비게이션 수습 패치 ───────────────────────── */
+
+/* 리스트를 가로 플렉스로 */
+.site-header .nav-list{
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* li도 인라인 플렉스(줄맞춤 안정) */
+.site-header .nav-list > li{
+  display: inline-flex;
+}
+
+/* 링크 기본값 복구: 폰트/색/여백 */
+.site-header .nav-list a{
+  display: block;
+  text-decoration: none;
+  font: inherit;          /* 전역 reset로 폰트 날아간 경우 복구 */
+  color: inherit;         /* 헤더 색상 상속 */
+  padding: 6px 10px;      /* 클릭 타겟 확보 */
+  line-height: 1.2;
+}
+
+/* 호버 살짝 강조(선택) */
+.site-header .nav-list a:hover{
+  text-decoration: underline;
+}
+
+/* 혹시 전역에서 세로로 강제했다면 우선순위 올려서 차단 */
+nav .nav-list{ flex-direction: row !important; }
+
+/* 헤더 컨테이너도 가로 정렬 유지 (row 유틸이 깨졌을 때 대비) */
+.site-header .container{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.site-header, .site-header *{
+  font-family: inherit;
+}
+
+.card { padding: 1rem; border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 1rem; }
+.grid.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: .5rem; }
+.reco-item { display: flex; align-items: center; justify-content: space-between; padding: .5rem 0; border-bottom: 1px dashed #e5e7eb; }
+.reco-item:last-child { border-bottom: 0; }
+.reco-title { font-weight: 600; }
+.reco-action { text-decoration: underline; }
+.toast { position: fixed; bottom: 16px; right: 16px; background: #111; color: #fff; padding: .6rem .8rem; border-radius: 8px; opacity: .94; }
+.toast.hidden { display: none; }
+@media (max-width: 640px) { .grid.grid-4 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
