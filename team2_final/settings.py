@@ -19,6 +19,12 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+IN_DOCKER = os.getenv("IN_DOCKER") == "1"
+
+# ── 개발환경용 보안 기본값 ──
+SECURE_SSL_REDIRECT = False
+SECURE_PROXY_SSL_HEADER = None
+USE_X_FORWARDED_HOST = False
 
 # 로컬 개발 기본 도메인 (OAuth 콜백 포함)
 # ※ 카카오/네이버 콘솔에 등록된 주소와 "완전히" 동일해야 합니다.
@@ -32,36 +38,42 @@ SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
-if DEBUG:
+if DEBUG and not IN_DOCKER:
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SESSION_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_SAMESITE = "Lax"
     SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
 else:
     SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]  # 배포에서는 반드시 env로 주입
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = "Lax"  # 대부분의 SPA/SSR에 무난
+    CSRF_COOKIE_SAMESITE = "Lax"
 
 # 호스트/CSRF 설정
-# env가 비어 있으면 로컬 기본 허용(127.0.0.1, localhost)
 _env_hosts = os.getenv("DJANGO_ALLOWED_HOSTS", "")
 if _env_hosts:
     ALLOWED_HOSTS = [h.strip() for h in _env_hosts.split(",") if h.strip()]
 else:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
+# CSRF_TRUSTED_ORIGINS: 모든 허용 호스트에 대해 http/https + 주요 포트(8000/8001) 추가
 CSRF_TRUSTED_ORIGINS = []
-for h in ALLOWED_HOSTS:
-    if not h:
-        continue
-    # 개발용 8000 포트도 허용 (필요 시 제거)
-    CSRF_TRUSTED_ORIGINS = [f"http://{h}", f"https://{h}", f"http://{h}:8000", f"https://{h}:8000"]
+def _add_csrf_origins(host):
+    # origin은 scheme 포함해야 함
+    CSRF_TRUSTED_ORIGINS.extend([
+        f"http://{host}",
+        f"https://{host}",
+        f"http://{host}:8000",
+        f"https://{host}:8000",
+        f"http://{host}:8001",
+        f"https://{host}:8001",
+    ])
 
-# ── 개발환경용 보안 기본값 (프록시/터널 사용 시 HTTPS 오인 방지) ──
-# http→https 강제 금지
-SECURE_SSL_REDIRECT = False
-# 프록시의 HTTPS 헤더 신뢰하지 않음 (로컬에서 https로 인식되는 문제 방지)
-SECURE_PROXY_SSL_HEADER = None
-# 호스트 헤더 재작성 신뢰 안 함
-USE_X_FORWARDED_HOST = False
-# 로컬 쿠키는 http로
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
+for h in ALLOWED_HOSTS:
+    if h:
+        _add_csrf_origins(h)
 
 # Application definition
 INSTALLED_APPS = [
@@ -78,6 +90,7 @@ INSTALLED_APPS = [
     'django_filters',
     "drf_spectacular",
     'drf_spectacular_sidecar',
+    "corsheaders",
 
     # 내 앱들
     'users',
@@ -126,6 +139,7 @@ SIMPLE_JWT = {
 }
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -275,3 +289,21 @@ SPECTACULAR_SETTINGS = {
 }
 
 WORKOUT_KCAL_PER_MIN = 5
+
+# 프런트가 도는 오리진을 정확히 지정
+_front_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if _front_origins:
+    CORS_ALLOWED_ORIGINS = [o.strip() for o in _front_origins.split(",") if o.strip()]
+else:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8001",
+        "http://127.0.0.1:8001",
+    ]
+
+# 인증 헤더 허용
+CORS_ALLOW_HEADERS = list(os.getenv("CORS_ALLOW_HEADERS", "").split(",")) if os.getenv("CORS_ALLOW_HEADERS") else [
+    "authorization","content-type","x-csrftoken","accept","accept-language","origin"
+]
+CORS_ALLOW_CREDENTIALS = True  # 쿠키 인증을 쓸 경우에만 True
