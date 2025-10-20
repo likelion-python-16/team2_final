@@ -21,6 +21,23 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent
 IN_DOCKER = os.getenv("IN_DOCKER") == "1"
 
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_IMAGE_MODEL = os.getenv("HF_IMAGE_MODEL")
+HF_TEXT_MODEL = os.getenv("HF_TEXT_MODEL")
+
+# MFDS CSV 기본 경로
+MFDS_FOOD_CSV = BASE_DIR / "intakes" / "data" / "mfds_foods.csv"
+
+# ── Nutrition AI / Meal Analyze 옵션 ──
+# 매칭률(%)이 이 값 이상이면 정상 매칭으로 간주하여 저장 허용
+MEAL_MATCH_THRESHOLD = float(os.getenv("MEAL_MATCH_THRESHOLD", "70.0"))
+# 매칭률이 기준 미만일 때도 CSV 가늠값(없으면 기본 kcal)으로 저장 허용할지
+ALLOW_FALLBACK_SAVE_BELOW = os.getenv("ALLOW_FALLBACK_SAVE_BELOW", "True").lower() == "true"
+# CSV에서 못 찾았을 때 최소로 넣을 기본 칼로리
+DEFAULT_FALLBACK_KCAL = float(os.getenv("DEFAULT_FALLBACK_KCAL", "300.0"))
+# 유틸/뷰에서 사용할 표준 경로 변수(기존 변수와 호환 유지)
+MFDS_CSV_PATH = MFDS_FOOD_CSV
+
 # ── 개발환경용 보안 기본값 ──
 SECURE_SSL_REDIRECT = False
 SECURE_PROXY_SSL_HEADER = None
@@ -99,14 +116,15 @@ INSTALLED_APPS = [
     'intakes',
     'feedbacks',
     'utils',
+    'ai',
 ]
 
 # DRF 설정
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        "rest_framework.authentication.SessionAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ],
+        "rest_framework.authentication.SessionAuthentication",
+        ],
     # 기본: GET은 익명 허용, POST/PUT/DELETE는 인증 필요
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
@@ -237,6 +255,8 @@ STATICFILES_DIRS = [
     # BASE_DIR / 'team2_final' / 'static',
 ]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -307,3 +327,7 @@ CORS_ALLOW_HEADERS = list(os.getenv("CORS_ALLOW_HEADERS", "").split(",")) if os.
     "authorization","content-type","x-csrftoken","accept","accept-language","origin"
 ]
 CORS_ALLOW_CREDENTIALS = True  # 쿠키 인증을 쓸 경우에만 True
+
+# ───────── AI Utils 퍼지 매칭 설정 ─────────
+FUZZY_SCORE_THRESHOLD = 86.0   # 퍼지 매칭 최소 점수 (0~100)
+FUZZY_CANDIDATES_LIMIT = 7     # 후보 개수 제한

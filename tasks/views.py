@@ -23,6 +23,15 @@ from rest_framework.filters import OrderingFilter
 
 from .models import Exercise, WorkoutPlan, TaskItem
 
+# 선택: 인테이크 모델 존재 시 사용
+try:
+    from intakes.models import NutritionLog, MealItem
+    HAS_INTAKE_MODELS = True
+except Exception:
+    NutritionLog = None
+    MealItem = None
+    HAS_INTAKE_MODELS = False
+
 # WorkoutLog 모델이 있으면 사용
 try:
     from .models import WorkoutLog
@@ -93,7 +102,7 @@ class ExerciseViewSet(viewsets.ReadOnlyModelViewSet):
 
 # ----------------------------------------------------------------------
 # WorkoutPlan - 소유자 전용
-# - 날짜 필터: plan.date / plan.log_date / logs.date / logs.log_date / created_at__date 순으로 시도
+# - 날짜 필터: plan.date / plan.log_date / created_at__date 순으로 시도
 # ----------------------------------------------------------------------
 class WorkoutPlanViewSet(viewsets.ModelViewSet):
     queryset = WorkoutPlan.objects.all()
@@ -109,23 +118,18 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return parse_iso_date(qp.get("log_date") or qp.get("date"))
 
     def _with_date_filter(self, qs):
-        """여러 후보 경로로 날짜 필터링. 첫 번째로 결과가 있는 조건을 사용.
-        ※ WorkoutLog 역참조는 프로젝트마다 달라 500을 유발할 수 있으므로 제외
-        """
+        """여러 후보 경로로 날짜 필터링. 첫 매칭 전략 사용."""
         d = self._get_date_param()
         if not d:
             return qs
 
         tried = []
-        # 1) 모델에 해당 날짜 필드가 있을 때만 시도
         if _has_field(WorkoutPlan, "date"):
             tried.append(Q(date=d))
         if _has_field(WorkoutPlan, "log_date"):
             tried.append(Q(log_date=d))
-        # 2) 최종 폴백: 생성일의 날짜 부분
         tried.append(Q(created_at__date=d))
 
-        # 첫 번째로 결과가 존재하는 조건 채택 (필드 에러 방어)
         for cond in tried:
             try:
                 tmp = qs.filter(cond).distinct()
@@ -151,7 +155,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
             return Response({"detail": "date=YYYY-MM-DD 쿼리 파라미터가 필요합니다."}, status=400)
         base = WorkoutPlan.objects.filter(user=request.user)
         
-        # 1차: 기존 후보 경로(date/log_date/logs/created_at__date)로 필터
+        # 1차: 기본 전략
         qs1 = self._with_date_filter(base)
         debug = {
             "requested_date": d.isoformat(),
@@ -161,16 +165,16 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         }
         qs = qs1
         match_strategy = "primary"
-        # 2차: 0건이면 created_at__date in {d-1, d, d+1} 완화 매칭
+        # 2차: created_at__date in {d-1, d, d+1}
         if not qs.exists():
-            from datetime import timedelta
-            around = [d - timedelta(days=1), d, d + timedelta(days=1)]
+            from datetime import timedelta as _td
+            around = [d - _td(days=1), d, d + _td(days=1)]
             qs2 = base.filter(created_at__date__in=around).order_by("id")
             debug.update({"match2_candidates": [x.isoformat() for x in around], "match2_count": qs2.count()})
             if qs2.exists():
                 qs = qs2
                 match_strategy = "around"
-        # 3차: 그래도 없으면 최신 1건 폴백
+        # 3차: 최신 1건 폴백
         if not qs.exists():
             qs3 = base.order_by("-created_at", "-id")[:1]
             debug["match3_count"] = qs3.count()
@@ -196,12 +200,9 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(plan).data)
 
     # POST /workoutplans/today/ensure/  → 멱등 보장
-    # ✅ WorkoutPlanViewSet.ensure_today (수정본)
     @action(detail=False, methods=["post"], url_path="today/ensure")
     def ensure_today(self, request):
-        # KST 기준 오늘 날짜 (Django TZ 설정 반영)
         today_ = timezone.localdate()
-
         plan = (
             WorkoutPlan.objects.filter(user=request.user, created_at__date=today_)
             .order_by("-created_at", "-id")
@@ -216,16 +217,15 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
                 "summary": "",
                 "target_focus": request.data.get("target_focus", ""),
                 "source": getattr(getattr(WorkoutPlan, "PlanSource", None), "MANUAL", None)
-                        or getattr(WorkoutPlan, "PlanSource", None)
-                        or None,
+                          or getattr(WorkoutPlan, "PlanSource", None)
+                          or None,
             }
             plan = WorkoutPlan.objects.create(user=request.user, **defaults)
             created = True
 
-            # ✅ 중요: 모델에 date 필드가 있으면 '오늘'을 명시적으로 기록 (시차 문제 예방)
+            # 모델에 date 필드가 있으면 '오늘' 기록 (시차 예방)
             if _has_field(WorkoutPlan, "date"):
                 plan.date = today_
-                # updated_at 필드가 있으면 함께 반영(선택)
                 plan.save(update_fields=["date"] + (["updated_at"] if _has_field(WorkoutPlan, "updated_at") else []))
 
         ser = self.get_serializer(plan)
@@ -297,7 +297,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
             if not ex_id:
                 continue
             intensity_value = t.get("intensity") or getattr(TaskItem.IntensityLevel, "MEDIUM", "medium")
-            if intensity_value == "mid":
+            if intensity_value == "mid":  # 호환
                 intensity_value = getattr(TaskItem.IntensityLevel, "MEDIUM", "medium")
 
             kwargs = dict(
@@ -335,7 +335,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"], url_path="copy_week")
     def copy_week(self, request):
         """
-        기준 주(월~일)의 계획/할일(TaskItem)을 타깃 주로 복제.
+        기준 주(월~일)의 계획/TaskItem을 타깃 주로 복제.
         WorkoutPlan.created_at의 '날짜' 기준으로 동작 (date 필드 없이 사용 가능)
         - source_start: YYYY-MM-DD (옵션, 기본: 이번 주 월요일)
         - target_start: YYYY-MM-DD (옵션, 기본: source_start + 7일)
@@ -345,7 +345,6 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         q = request.query_params
         overwrite = (q.get("overwrite") or "false").lower() == "true"
 
-        # 날짜 파싱 & 보정
         src_raw = q.get("source_start")
         tgt_raw = q.get("target_start")
         src0 = monday_of(parse_iso_date(src_raw) or date.today())
@@ -354,7 +353,6 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
         src_days = [src0 + timedelta(days=i) for i in range(7)]
         tgt_days = [tgt0 + timedelta(days=i) for i in range(7)]
 
-        # 소스 주 플랜 수집: created_at__date 기준
         src_plans = (
             WorkoutPlan.objects.filter(user=user)
             .filter(created_at__date__range=(src0, src0 + timedelta(days=6)))
@@ -480,7 +478,7 @@ class WorkoutPlanViewSet(viewsets.ModelViewSet):
 
 
 # ----------------------------------------------------------------------
-# TaskItem - 계획 내 운동 항목 (+ 완료/스킵 토글)
+# TaskItem - 계획 내 운동 항목 (+ 완료/스킵 토글, 주간 집계)
 # ----------------------------------------------------------------------
 class TaskItemViewSet(viewsets.ModelViewSet):
     queryset = TaskItem.objects.select_related("workout_plan", "exercise").all()
@@ -517,7 +515,6 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     # ✅ POST /taskitems/{id}/toggle-complete/
-    # body: {"value": true|false}
     @action(detail=True, methods=["post"], url_path="toggle-complete")
     def toggle_complete(self, request, pk=None):
         ti = self.get_object()
@@ -538,7 +535,6 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         ti.completed = new_val
         ti.completed_at = timezone.now() if new_val else None
         if new_val:
-            # 완료되면 스킵 해제
             ti.skipped = False
             if "skip_reason" in field_names:
                 ti.skip_reason = None
@@ -553,7 +549,6 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         return Response({"ok": True, "id": ti.id, "completed": ti.completed, "completed_at": ti.completed_at})
 
     # ✅ POST /taskitems/{id}/toggle-skip/
-    # body: {"value": true|false, "reason": "optional text"}
     @action(detail=True, methods=["post"], url_path="toggle-skip")
     def toggle_skip(self, request, pk=None):
         ti = self.get_object()
@@ -569,7 +564,6 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         reason = (request.data.get("reason") or "").strip()
 
         ti.skipped = new_val
-        # 스킵하면 완료 해제
         if "completed" in field_names:
             ti.completed = False
         if "completed_at" in field_names:
@@ -601,8 +595,7 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         """
         주간 TaskItem 집계 + 간단 피드백.
         ?start=YYYY-MM-DD (옵션, 기본: 이번 주 월요일)
-        WorkoutPlan.created_at의 '날짜' 기준으로 필터링 (date 필드 없이 동작)
-        데이터가 없어도 200 OK와 빈 집계를 반환.
+        WorkoutPlan.created_at의 '날짜' 기준으로 필터링.
         """
         start = monday_of(parse_iso_date(request.query_params.get("start")) or date.today())
         end = start + timedelta(days=6)
@@ -618,7 +611,7 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         skipped = items.filter(skipped=True).count() if has_skipped else 0
         rate = round((done * 100.0 / total), 1) if total else 0.0
 
-        # 일자별 완료 여부 계산
+        # 일자별 완료 여부
         day_has_done = {start + timedelta(days=i): False for i in range(7)}
         if total:
             if has_completed:
@@ -632,7 +625,7 @@ class TaskItemViewSet(viewsets.ModelViewSet):
                     if start <= d0 <= end:
                         day_has_done[d0] = True
 
-        # best streak 계산
+        # best streak
         cur = best = 0
         for i in range(7):
             d0 = start + timedelta(days=i)
@@ -667,7 +660,7 @@ if HAS_WORKOUT_LOG:
         serializer_class = WorkoutLogSerializer
         permission_classes = [permissions.IsAuthenticated]
         filter_backends = [OrderingFilter]
-        ordering_fields = ("id", "date")  # created_at 제거 (모델에 없음)
+        ordering_fields = ("id", "date")
         ordering = ("-id",)
 
         def get_queryset(self):
@@ -704,10 +697,8 @@ def fixtures_exercises(request):
         return Response({"detail": "fixture not found (exercise[s].json)"}, status=404)
 
     try:
-        # 간단한 크기 상한(1MB)
         if fixture_path.stat().st_size > 1_000_000:
             return Response({"detail": "fixture too large (>1MB)"}, status=400)
-
         raw = json.loads(fixture_path.read_text(encoding="utf-8"))
     except Exception as e:
         return Response({"detail": f"fixture read error: {e}"}, status=400)
@@ -729,7 +720,7 @@ def fixtures_exercises(request):
 
 
 # ----------------------------------------------------------------------
-# 템플릿 뷰 (대시보드/워크아웃/밀) - 데모/프로토타입
+# 템플릿 뷰 (대시보드/워크아웃/밀)
 # ----------------------------------------------------------------------
 @ensure_csrf_cookie
 @login_required
@@ -810,7 +801,7 @@ def dashboard(request):
         "goals": {"total": 0, "completed": 0},
     }
 
-    # 1) 운동 합계 (WorkoutLog 있을 때) → created_at 아님, date 필드 사용!
+    # 1) 운동 합계 (WorkoutLog 있을 때)
     if HAS_WORKOUT_LOG:
         today_totals["workout_minutes"] = (
             WorkoutLog.objects
@@ -820,30 +811,11 @@ def dashboard(request):
         )
 
     # 2) 식단 합계 (NutritionLog 우선, 없으면 MealItem 대안)
-    try:
-        from intakes.models import NutritionLog  # 프로젝트 경로에 맞게 조정
-        agg = (
-            NutritionLog.objects
-            .filter(user=request.user, log_date=today)
-            .aggregate(
-                cal=Sum("calories"),
-                pro=Sum("protein_g"),
-                carb=Sum("carbs_g"),
-                fat=Sum("fat_g"),
-            )
-        )
-        today_totals["meals"] = {
-            "calories": int(agg["cal"]  or 0),
-            "protein":  int(agg["pro"]  or 0),
-            "carbs":    int(agg["carb"] or 0),
-            "fat":      int(agg["fat"]  or 0),
-        }
-    except Exception:
+    if HAS_INTAKE_MODELS:
         try:
-            from intakes.models import MealItem
             agg = (
-                MealItem.objects
-                .filter(meal__user=request.user, meal__log_date=today)
+                NutritionLog.objects
+                .filter(user=request.user, log_date=today)
                 .aggregate(
                     cal=Sum("calories"),
                     pro=Sum("protein_g"),
@@ -858,24 +830,36 @@ def dashboard(request):
                 "fat":      int(agg["fat"]  or 0),
             }
         except Exception:
-            pass  # 식단 모델이 아직 없으면 무시
+            try:
+                agg = (
+                    MealItem.objects
+                    .filter(meal__user=request.user, meal__log_date=today)
+                    .aggregate(
+                        cal=Sum("calories"),
+                        pro=Sum("protein_g"),
+                        carb=Sum("carbs_g"),
+                        fat=Sum("fat_g"),
+                    )
+                )
+                today_totals["meals"] = {
+                    "calories": int(agg["cal"]  or 0),
+                    "protein":  int(agg["pro"]  or 0),
+                    "carbs":    int(agg["carb"] or 0),
+                    "fat":      int(agg["fat"]  or 0),
+                }
+            except Exception:
+                pass
 
     # 3) 목표 합계 (DailyGoal 우선, 없으면 Goal 대안)
     try:
-        from goals.models import DailyGoal  # 프로젝트 규칙에 맞게 조정
+        from goals.models import DailyGoal
         q = DailyGoal.objects.filter(user=request.user, date=today)
-        today_totals["goals"] = {
-            "total":     q.count(),
-            "completed": q.filter(is_completed=True).count(),
-        }
+        today_totals["goals"] = {"total": q.count(), "completed": q.filter(is_completed=True).count()}
     except Exception:
         try:
             from goals.models import Goal
             q = Goal.objects.filter(user=request.user, is_active=True)
-            today_totals["goals"] = {
-                "total":     q.count(),
-                "completed": q.filter(progress__gte=100).count(),
-            }
+            today_totals["goals"] = {"total": q.count(), "completed": q.filter(progress__gte=100).count()}
         except Exception:
             pass
     # ==========================================
@@ -899,8 +883,6 @@ def dashboard(request):
             "progress_complete":  progress_complete,
             "progress_total":     total_tasks,
             "progress_done":      completed_count,
-
-            # ✅ 추가 컨텍스트
             "today_totals":       today_totals,
         },
     )
@@ -938,56 +920,96 @@ def workouts(request):
 @ensure_csrf_cookie
 @login_required
 def meals(request):
-    # 템플릿 데모용
+    # 사용자별 목표(데모 값)
     nutrition_goals = {"calories": 2200, "protein": 150, "carbs": 220, "fat": 80}
-    todays_meals = [
-        {
-            "id":        "1",
-            "name":      "Protein Overnight Oats",
-            "type":      "breakfast",
-            "calories":  420,
-            "protein":   25,
-            "carbs":     45,
-            "fat":       12,
-            "image":     "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=400&h=300&fit=crop",
-            "ai_generated": True,
-        },
-        {
-            "id":        "2",
-            "name":      "Grilled Chicken Quinoa Bowl",
-            "type":      "lunch",
-            "calories":  550,
-            "protein":   45,
-            "carbs":     40,
-            "fat":       18,
-            "image":     "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop",
-            "ai_generated": True,
-        },
-    ]
+    today = timezone.localdate()
+
+    consumed = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+    meal_history = []
+
+    if HAS_INTAKE_MODELS:
+        # NutritionLog 우선, 없으면 MealItem 집계
+        try:
+            log = NutritionLog.objects.filter(user=request.user, date=today).first()
+        except Exception:
+            log = None
+
+        if log:
+            consumed = {
+                "calories": float(getattr(log, "kcal_total", 0)),
+                "protein":  float(getattr(log, "protein_total_g", 0)),
+                "carbs":    float(getattr(log, "carb_total_g", 0)),
+                "fat":      float(getattr(log, "fat_total_g", 0)),
+            }
+        else:
+            try:
+                items = MealItem.objects.filter(meal__user=request.user, meal__log_date=today)
+                def _nut(i, k): return i.resolved_nutrients().get(k, 0)
+                consumed = {
+                    "calories": sum(_nut(i, "kcal") for i in items),
+                    "protein":  sum(_nut(i, "protein_g") for i in items),
+                    "carbs":    sum(_nut(i, "carb_g") for i in items),
+                    "fat":      sum(_nut(i, "fat_g") for i in items),
+                }
+                # 상세 히스토리
+                type_class_map = {
+                    "아침": "breakfast", "점심": "lunch", "저녁": "dinner", "간식": "snack",
+                    "breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner", "snack": "snack",
+                }
+                for item in items.order_by("-id"):
+                    n = item.resolved_nutrients()
+                    meal_history.append(
+                        {
+                            "meal_type": item.meal.meal_type,
+                            "name": item.name or (item.food.name if item.food else "기록된 식사"),
+                            "calories": round(n.get("kcal", 0), 1),
+                            "protein": round(n.get("protein_g", 0), 1),
+                            "carbs": round(n.get("carb_g", 0), 1),
+                            "fat": round(n.get("fat_g", 0), 1),
+                            "source": "AI",
+                            "type_class": type_class_map.get(item.meal.meal_type, "default"),
+                        }
+                    )
+            except Exception:
+                pass
 
     def pct(cur, goal):
         return min(int(round(cur / goal * 100)) if goal else 0, 100)
 
-    consumed = {
-        "calories": sum(m["calories"] for m in todays_meals),
-        "protein":  sum(m["protein"]  for m in todays_meals),
-        "carbs":    sum(m["carbs"]    for m in todays_meals),
-        "fat":      sum(m["fat"]      for m in todays_meals),
-    }
+    consumed = {k: round(v, 1) for k, v in consumed.items()}
 
     nutrition_summary = [
-        {"label": "Calories", "current": consumed["calories"], "goal": nutrition_goals["calories"], "color": "primary",   "unit": "cal", "progress": pct(consumed["calories"], nutrition_goals["calories"])},
-        {"label": "Protein",  "current": consumed["protein"],  "goal": nutrition_goals["protein"],  "color": "success",   "unit": "g",   "progress": pct(consumed["protein"],  nutrition_goals["protein"])},
-        {"label": "Carbs",    "current": consumed["carbs"],    "goal": nutrition_goals["carbs"],    "color": "warning",   "unit": "g",   "progress": pct(consumed["carbs"],    nutrition_goals["carbs"])},
-        {"label": "Fat",      "current": consumed["fat"],      "goal": nutrition_goals["fat"],      "color": "secondary", "unit": "g",   "progress": pct(consumed["fat"],      nutrition_goals["fat"])},
+        {"label": "칼로리", "current": consumed["calories"], "goal": nutrition_goals["calories"], "color": "primary",   "unit": "kcal", "progress": pct(consumed["calories"], nutrition_goals["calories"])},
+        {"label": "단백질", "current": consumed["protein"],  "goal": nutrition_goals["protein"],  "color": "success",   "unit": "g",    "progress": pct(consumed["protein"],  nutrition_goals["protein"])},
+        {"label": "탄수화물","current": consumed["carbs"],   "goal": nutrition_goals["carbs"],    "color": "warning",   "unit": "g",    "progress": pct(consumed["carbs"],    nutrition_goals["carbs"])},
+        {"label": "지방",   "current": consumed["fat"],      "goal": nutrition_goals["fat"],      "color": "secondary", "unit": "g",    "progress": pct(consumed["fat"],      nutrition_goals["fat"])},
     ]
 
-    ai_feedback_cards = [
-        {"type": "suggestion", "message": "You're 300 calories below your goal. Consider adding a protein-rich snack to reach your targets."},
-    ]
+    remaining = {
+        "calories": max(nutrition_goals["calories"] - consumed["calories"], 0),
+        "protein":  max(nutrition_goals["protein"]  - consumed["protein"],  0),
+        "carbs":    max(nutrition_goals["carbs"]    - consumed["carbs"],    0),
+        "fat":      max(nutrition_goals["fat"]      - consumed["fat"],      0),
+    }
+
+    remaining_cal = remaining["calories"]
+    remaining_pro = remaining["protein"]
+
+    if remaining_cal <= 0 and remaining_pro <= 0:
+        feedback_message = "오늘 목표를 이미 달성했어요! 가벼운 샐러드나 수분 섭취로 마무리해 보세요."
+    elif remaining_cal <= 150:
+        feedback_message = "거의 다 왔어요. 저당 요거트나 삶은 달걀처럼 가벼운 단백질 간식으로 마무리하세요."
+    elif remaining_pro >= 25:
+        feedback_message = "단백질이 조금 부족해요. 닭가슴살 샐러드나 두부구이를 추가해 보는 건 어떨까요?"
+    else:
+        feedback_message = "남은 칼로리에 맞춰 견과류 + 계란 같은 간편한 스낵을 추가해 균형을 맞춰 보세요."
+
+    ai_feedback_cards = [{"type": "suggestion", "message": feedback_message}]
     ai_recommendations = [
-        {"title": "🥗 Dinner Suggestion", "message": "Based on your remaining calories and macros, try a salmon and sweet potato dish.", "button": "View Recipe"},
-        {"type": "achievement",           "message": "Great protein intake today! You're 90% towards your protein goal."},
+        {"title": "🥗 고단백 식사", "message": f"남은 단백질 {max(remaining_pro, 0):.0f}g를 채우려면 닭가슴살 + 현미밥 + 데친 채소 조합이 좋아요.", "button": "추천 레시피 보기"},
+        {"title": "🍜 든든한 한 그릇", "message": "연어구이와 고구마, 시금치 나물을 곁들이면 지방을 크게 늘리지 않으면서 포만감을 채울 수 있어요."},
+        {"title": "🥙 간편 옵션", "message": "그릭요거트 + 견과류 + 바나나 조합으로 300kcal 내외의 영양 간식을 준비해 보세요."},
+        {"type": "achievement", "message": "단백질 섭취가 목표의 90%에 도달했어요. 저녁에 20g만 더 챙기면 완벽!"},
     ]
 
     return render(
@@ -995,9 +1017,10 @@ def meals(request):
         "tasks/meals.html",
         {
             "nutrition_summary":  nutrition_summary,
-            "todays_meals":       todays_meals,
             "nutrition_goals":    nutrition_goals,
             "ai_feedback_cards":  ai_feedback_cards,
             "ai_recommendations": ai_recommendations,
+            "remaining_macros":   remaining,
+            "meal_history":       meal_history,
         },
     )

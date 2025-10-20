@@ -1,8 +1,9 @@
+# tasks/urls.py
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from . import views
-from . import api_views  # Today Summary/Recommendations/Insights 등 최소 API 뷰
+from . import api_views  # Today Summary / Recommendations / Insights 최소 API 뷰
 
 # -------------------------------------------------------------------
 # DRF Router (뷰셋들)
@@ -12,13 +13,16 @@ router.register(r"exercises", views.ExerciseViewSet, basename="exercise")
 router.register(r"workoutplans", views.WorkoutPlanViewSet, basename="workoutplan")
 router.register(r"taskitems", views.TaskItemViewSet, basename="taskitem")
 
-# 선택적: WorkoutLogViewSet 이 있을 때만 등록
+# 선택적: WorkoutLogViewSet 이 있을 때만 등록 (개발 환경 차이 대비)
 try:
-    router.register(r"workoutlogs", views.WorkoutLogViewSet, basename="workoutlog")
+    # views 모듈에 정의되어 있으면 등록
+    _wlv = getattr(views, "WorkoutLogViewSet", None)
+    if _wlv:
+        router.register(r"workoutlogs", _wlv, basename="workoutlog")
 except Exception:
     pass
 
-# 테스트/호환용 별칭
+# 테스트/호환용 별칭 (reverse("tasks-list") 등)
 router.register(r"tasks", views.TaskItemViewSet, basename="tasks")
 
 # -------------------------------------------------------------------
@@ -33,11 +37,11 @@ page_urlpatterns = [
 ]
 
 # -------------------------------------------------------------------
-# API 라우트 (여기엔 'api/' 접두사를 절대 넣지 않습니다)
-# 루트 urls.py에서 `path("api/", include(...))`로 마운트합니다.
+# API 라우트 (여기엔 'api/' 접두사를 넣지 않는다)
+# 루트 urls.py에서 `path("api/", include(...))`로 마운트
 # -------------------------------------------------------------------
 api_urlpatterns = [
-    path("", include(router.urls)),  # /exercises, /workoutplans, /taskitems, ...
+    path("", include(router.urls)),  # /exercises, /workoutplans, /taskitems, /workoutlogs?, /tasks(alias)
     path("fixtures/exercises/", views.fixtures_exercises, name="fixtures-exercises"),
 
     # ✅ Today 패널용 최소 API
@@ -52,7 +56,7 @@ api_urlpatterns = [
 ]
 
 # -------------------------------------------------------------------
-# 최종 노출: 페이지 라우트만 기본 export
+# 기본 export: 페이지 라우트만 노출
 # (API는 루트 urls.py에서 api_urlpatterns 를 별도 include)
 # -------------------------------------------------------------------
 urlpatterns = page_urlpatterns

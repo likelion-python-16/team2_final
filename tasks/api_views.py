@@ -1,12 +1,14 @@
 # tasks/api_views.py
 from datetime import datetime
+from typing import Optional
+
+from django.conf import settings
+from django.core.exceptions import FieldError
 from django.db.models import Sum, Count, Q, DateField
 from django.db.models.functions import Cast
-from django.core.exceptions import FieldError
-from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.conf import settings
+from rest_framework.views import APIView
 
 from .models import TaskItem, WorkoutPlan
 
@@ -29,6 +31,13 @@ def parse_yyyy_mm_dd(s: str):
         return datetime.strptime(s, "%Y-%m-%d").date()
     except Exception:
         return None
+
+def _has_field(model_cls, field_name: str) -> bool:
+    try:
+        model_cls._meta.get_field(field_name)
+        return True
+    except Exception:
+        return False
 
 def filter_by_user(qs, user):
     try:
@@ -72,17 +81,24 @@ def latest_plan_tasks(qs):
             continue
     return qs.none()
 
-def base_qs(request_user, date_str: str, plan_id: str | None):
+def base_qs(request_user, date_str: str, plan_id: Optional[str]):
     d = parse_yyyy_mm_dd(date_str)
     if not d:
         raise ValueError("invalid date format")
     qs = TaskItem.objects.select_related("workout_plan", "exercise")
     qs = filter_by_user(qs, request_user)
+
     if plan_id:
-        return qs.filter(workout_plan_id=plan_id)
+        try:
+            pid = int(plan_id)
+        except Exception:
+            raise ValueError("invalid workout_plan id")
+        return qs.filter(workout_plan_id=pid)
+
     matched = any_date_filter(qs, d)
     if matched is not None and matched.exists():
         return matched
+
     for f in ["created_at", "created", "updated_at", "updated"]:
         try:
             casted = qs.annotate(_pdate=Cast(f"workout_plan__{f}", output_field=DateField()))
@@ -104,7 +120,6 @@ def norm_intensity(val: str | None) -> str:
     return v
 
 def kcal_per_min_for(task) -> int:
-    # task.intensity 우선 → 없으면 기본
     try:
         intensity = norm_intensity(getattr(task, "intensity", None))
         return INTENSITY_KCAL_MAP.get(intensity, kcal_per_min_default)
@@ -112,14 +127,12 @@ def kcal_per_min_for(task) -> int:
         return kcal_per_min_default
 
 def task_group_key(t):
-    # 근육군/부위/카테고리 같은 후보 필드에서 첫 유효값
     for f in ("muscle_group","body_part","category","exercise_group","type","target"):
         try:
             val = getattr(t, f, None)
             if val: return str(val)
         except Exception:
             continue
-    # FK exercise에 group/name이 있으면 보조
     try:
         val = t.exercise and getattr(t.exercise, "group", None)
         if val: return str(val)
@@ -138,26 +151,45 @@ class WorkoutSummaryView(APIView):
             return Response({"detail": "date is required (YYYY-MM-DD)"}, status=400)
         try:
             qs = base_qs(request.user, date_str, plan_id)
-        except ValueError:
-            return Response({"detail": "invalid date format"}, status=400)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=400)
 
+        has_completed = _has_field(TaskItem, "completed")
+
+        # 안전한 집계
         agg = qs.aggregate(
             total_min=Sum("duration_min"),
             tasks_count=Count("id"),
-            completed_count=Count("id", filter=Q(completed=True)),
         )
-        total_min       = int(agg.get("total_min") or 0)
-        tasks_count     = int(agg.get("tasks_count") or 0)
-        completed_count = int(agg.get("completed_count") or 0)
+        total_min   = int(agg.get("total_min") or 0)
+        tasks_count = int(agg.get("tasks_count") or 0)
 
-        # 완료시간 * (강도별 kcal/min)
-        done_qs = qs.filter(completed=True).values("id","duration_min","intensity")
+        if has_completed:
+            try:
+                completed_count = int(qs.filter(completed=True).count())
+            except Exception:
+                completed_count = 0
+        else:
+            completed_count = 0
+
+        # 완료 항목 칼로리
         calories_sum = 0
-        for t in done_qs:
-            minutes = int(t.get("duration_min") or 0)
-            intensity = norm_intensity(t.get("intensity"))
-            rate = INTENSITY_KCAL_MAP.get(intensity, kcal_per_min_default)
-            calories_sum += minutes * rate
+        try:
+            done_iterable = qs.filter(completed=True) if has_completed else qs
+            for t in done_iterable.values("duration_min", "intensity"):
+                minutes = int(t.get("duration_min") or 0)
+                intensity = norm_intensity(t.get("intensity"))
+                rate = INTENSITY_KCAL_MAP.get(intensity, kcal_per_min_default)
+                calories_sum += minutes * rate
+        except Exception:
+            # values()가 실패하면 안전 루프
+            try:
+                for t in (done_iterable[:200] if has_completed else qs[:200]):
+                    minutes = int(getattr(t, "duration_min", 0) or 0)
+                    rate = kcal_per_min_for(t)
+                    calories_sum += minutes * rate
+            except Exception:
+                calories_sum = 0
 
         return Response({
             "date": date_str,
@@ -174,8 +206,8 @@ class RecommendationsView(APIView):
     """
     규칙:
     1) 할 일 없음 → 플랜 생성 유도
-    2) 남은(Task.completed=False) 항목을 그룹핑(근육군/부위/카테고리) → 최다 그룹 추천
-    3) 남은 항목의 평균 강도/총 시간에 따라 간단 가이드 문구 추가
+    2) 남은(Task.completed=False) 항목 그룹핑 → 최다 그룹 추천
+    3) 남은 항목 평균 강도/총 시간에 따라 가이드 문구
     """
     permission_classes = [IsAuthenticated]
 
@@ -186,11 +218,10 @@ class RecommendationsView(APIView):
             return Response({"detail": "date is required"}, status=400)
         try:
             qs = base_qs(request.user, date_str, plan_id)
-        except ValueError:
-            return Response({"detail": "invalid date format"}, status=400)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=400)
 
         total = qs.count()
-        done  = qs.filter(completed=True).count()
         if total == 0:
             return Response([{
                 "title": "오늘 계획이 없어요",
@@ -198,8 +229,14 @@ class RecommendationsView(APIView):
                 "action_url": "/tasks/workouts/#wk-ensure-today"
             }])
 
-        recos = []
-        remain = list(qs.filter(completed=False))
+        # 남은 항목 계산 (completed 필드 유무 가드)
+        has_completed = _has_field(TaskItem, "completed")
+        try:
+            remain_qs = qs.filter(completed=False) if has_completed else qs
+        except Exception:
+            remain_qs = qs
+
+        remain = list(remain_qs[:200])
 
         # 2) 그룹핑
         groups = {}
@@ -210,17 +247,13 @@ class RecommendationsView(APIView):
             groups[key]["minutes"] += int(getattr(t, "duration_min", 0) or 0)
             groups[key]["ints"].append(norm_intensity(getattr(t, "intensity", None)))
 
-        # 최다 그룹(개수 > 시간 순 정렬)
-        top = None
+        recos = []
         if groups:
-            top = sorted(
+            gname, info = sorted(
                 groups.items(),
                 key=lambda kv: (len(kv[1]["items"]), kv[1]["minutes"]),
                 reverse=True
             )[0]
-
-        if top:
-            gname, info = top
             recos.append({"title": f"{gname} 중심으로 마무리해보세요 ({len(info['items'])}개 남음)"})
 
         # 3) 강도/시간 기반 가이드
@@ -238,6 +271,7 @@ class RecommendationsView(APIView):
             recos.append({"title": "중강도 위주 — 마지막은 스트레칭으로 마무리"})
 
         return Response(recos)
+
 
 class TodayInsightsView(APIView):
     """
@@ -258,36 +292,31 @@ class TodayInsightsView(APIView):
 
         try:
             qs = base_qs(request.user, date_str, plan_id)
-        except ValueError:
-            return Response({"detail": "invalid date format"}, status=400)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=400)
         except Exception as e:
-            # base_qs 내부에서 의외의 오류가 나도 500 막기
             if debug:
                 return Response({"detail": f"base_qs error: {e.__class__.__name__}: {e}"}, status=500)
             return Response({"bullets": []}, status=200)
 
-        # 여기부터는 어떤 필드가 없어도(스키마 차이) 터지지 않도록 try/except로 감싼다
         bullets = []
         try:
-            # 1) 대표 운동 후보 뽑기 (values로 뽑되, 실패하면 개별 객체 접근)
+            # 1) 대표 운동 후보
             candidates = []
             try:
-                # 가장 일반적인 케이스
                 candidates = list(qs.values("exercise_name", "duration_min", "intensity"))
             except Exception:
                 candidates = []
 
             if not candidates:
-                # FK로 이름 가져오기 시도
                 try:
                     candidates = list(qs.values("exercise__name", "duration_min", "intensity"))
                 except Exception:
                     candidates = []
 
-            # 최후: 객체로부터 안전 추출 (느리지만 튼튼)
             if not candidates:
                 tmp = []
-                for t in qs[:50]:  # 안전상 상한
+                for t in qs[:50]:
                     try:
                         name = getattr(t, "exercise_name", None)
                         if not name and getattr(t, "exercise", None):
@@ -302,7 +331,7 @@ class TodayInsightsView(APIView):
                 if tmp:
                     candidates = [{"exercise_name": x["_name"], "duration_min": x["_mins"], "intensity": x["_intensity"]} for x in tmp]
 
-            # 2) 가중치 스코어 계산
+            # 2) 가중치 스코어
             best_name, best_score = None, -1
             for t in candidates:
                 try:
@@ -322,10 +351,11 @@ class TodayInsightsView(APIView):
                 bullets.append(f"대표 운동: {best_name}")
 
             # 3) 진행도
+            has_completed = _has_field(TaskItem, "completed")
             try:
                 total = qs.count()
                 if total:
-                    done = qs.filter(completed=True).count()
+                    done = qs.filter(completed=True).count() if has_completed else 0
                     bullets.append(f"진행: {done}/{total}")
             except Exception:
                 pass
@@ -339,7 +369,6 @@ class TodayInsightsView(APIView):
 
             return Response({"bullets": bullets})
         except Exception as e:
-            # 어떤 이유로든 여기서 또 예외가 나면 500을 막고 빈 결과 반환
             if debug:
                 return Response({"detail": f"insights error: {e.__class__.__name__}: {e}", "bullets": []}, status=500)
             return Response({"bullets": []})

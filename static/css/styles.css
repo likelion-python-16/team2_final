@@ -1902,3 +1902,27 @@ nav .nav-list{ flex-direction: row !important; }
 .toast { position: fixed; bottom: 16px; right: 16px; background: #111; color: #fff; padding: .6rem .8rem; border-radius: 8px; opacity: .94; }
 .toast.hidden { display: none; }
 @media (max-width: 640px) { .grid.grid-4 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+
+/* ✅ 저장 버튼 스타일 */
+.btn--primary[data-photo-commit] {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 6px;
+  background-color: #08d1ff;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+/* hover / active 효과 */
+.btn--primary[data-photo-commit]:hover {
+  background-color: #06b3da;
+}
+
+.btn--primary[data-photo-commit]:active {
+  transform: scale(0.97);
+}
