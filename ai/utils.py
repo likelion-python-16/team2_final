@@ -1,6 +1,7 @@
 # ai/utils.py
 # intakes/data/mfds_foods.csv에서 평균값을 집계해 가늠 영양소(macros)를 추정.
 # MFDS 한글 헤더 자동 인식 + 정규화 + 영→한 동의어 + 퍼지 매칭(rapidfuzz) 지원
+# ✅ per100g(보조) + weight_g(1회제공량 g) + total(=per100g*weight/100) 구조체까지 제공
 
 from __future__ import annotations
 
@@ -22,9 +23,13 @@ except Exception:  # pragma: no cover
     process = None
 
 __all__ = [
+    # 기존 공개 API
     "estimate_macros_from_csv",
     "load_mfds_rows",
     "_match_csv_by_label",
+    # 신규 공개 API (권장)
+    "match_csv_entry",          # ← 라벨 → {label_ko, weight_g, per100g, total}
+    "parse_weight_g",
 ]
 
 # ───────────────── 환경/옵션 ─────────────────
@@ -35,6 +40,7 @@ FUZZY_CANDIDATES_LIMIT = int(getattr(settings, "FUZZY_CANDIDATES_LIMIT", 5))
 EN_KO_SYNONYMS = {
     "hamburger": "햄버거",
     "cheeseburger": "치즈버거",
+    "burger": "햄버거",
     "spaghetti bolognese": "볼로네제 스파게티",
     "bolognese": "볼로네제",
     "spaghetti": "스파게티",
@@ -47,11 +53,22 @@ EN_KO_SYNONYMS = {
     "kimbap": "김밥",
     "gimbap": "김밥",
     "fried chicken": "치킨",
+    "chicken": "치킨",
     "pork cutlet": "돈까스",
     "tonkatsu": "돈까스",
     "donkatsu": "돈까스",
     "tteokbokki": "떡볶이",
     "rice cake": "떡",
+    "bibimbap": "비빔밥",
+    "bulgogi": "불고기",
+    "yogurt": "요거트",
+    "sandwich": "샌드위치",
+    "steak": "스테이크",
+    "pizza": "피자",
+    "curry": "카레",
+    "apple": "사과",
+    "banana": "바나나",
+    "coffee": "커피",
 }
 
 # ---------- 내부 유틸 ----------
@@ -120,6 +137,7 @@ def load_mfds_rows() -> Iterable[Dict[str, str]]:
     권장 컬럼(있으면 자동 추출):
       - 식품명, 대표식품명
       - 에너지(kcal), 단백질(g), 탄수화물(g), 지방(g)
+      - 식품중량 또는 1회제공량/serving/weight (g)
     """
     p = getattr(settings, "MFDS_FOOD_CSV", None)
     path: Optional[Path] = None
@@ -147,79 +165,30 @@ def load_mfds_rows() -> Iterable[Dict[str, str]]:
         return []
     return rows
 
-# ---------- 퍼블릭 API ----------
+# ---------- weight 파싱 ----------
 
-def estimate_macros_from_csv(label_ko: str) -> Optional[Dict[str, float]]:
+_WEIGHT_NUMBER_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*g", re.IGNORECASE)
+
+def parse_weight_g(v: Optional[str]) -> float:
     """
-    주어진 한글 라벨(예: '김밥', '샐러드')을 CSV에서 찾아
-    평균 칼로리/단백질/탄수화물/지방을 추정해 반환.
-    매칭 규칙(순서대로 시도):
-      1) 정규화된 완전일치
-      2) 부분일치(포함 관계)
-    일치가 하나도 없으면 None.
+    '550g' / '총중량 300 g' / '1개(180g)' / '180 g/pack' / '300' → 180.0 / 300.0
+    비어있으면 100.0
     """
-    if not label_ko:
-        return None
+    if v is None:
+        return 100.0
+    s = str(v).strip().lower().replace("그램", "g")
+    m = _WEIGHT_NUMBER_RE.search(s)
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            pass
+    try:
+        return float(s)
+    except Exception:
+        return 100.0
 
-    target_norm = _normalize_label(label_ko)
-    if not target_norm:
-        return None
-
-    rows = load_mfds_rows()
-    if not rows:
-        return None
-
-    exact_hits = []
-    partial_hits = []
-
-    for row in rows:
-        # MFDS 한글 우선
-        name = (row.get("식품명") or row.get("대표식품명") or row.get("name_ko") or row.get("label_ko") or "").strip()
-        if not name:
-            continue
-
-        name_norm = _normalize_label(name)
-        if not name_norm:
-            continue
-
-        if name_norm == target_norm:
-            exact_hits.append(row)
-        elif (target_norm in name_norm) or (name_norm in target_norm):
-            partial_hits.append(row)
-
-    def _aggregate(hit_rows: Iterable[Dict[str, str]]) -> Optional[Dict[str, float]]:
-        totals = defaultdict(float)
-        count = 0
-        for r in hit_rows:
-            # _row_to_macros를 통일 사용 (헤더 편차 대응)
-            m = _row_to_macros(r)
-            totals["calories"] += m["calories"]
-            totals["protein"]  += m["protein"]
-            totals["carb"]     += m["carb"]
-            totals["fat"]      += m["fat"]
-            count += 1
-        if count == 0:
-            return None
-        return {
-            "calories": round(totals["calories"] / count, 2),
-            "protein":  round(totals["protein"]  / count, 2),
-            "carb":     round(totals["carb"]     / count, 2),
-            "fat":      round(totals["fat"]      / count, 2),
-        }
-
-    # 1) 완전일치 우선
-    agg = _aggregate(exact_hits)
-    if agg:
-        return agg
-
-    # 2) 부분일치 백업
-    agg = _aggregate(partial_hits)
-    if agg:
-        return agg
-
-    return None
-
-# ---------- MFDS 한글 헤더 최적화: 행 → 표준 macros ----------
+# ---------- MFDS 한글 헤더 → 표준 macros(per100g) ----------
 
 def _row_to_macros(row: Dict[str, str]) -> Dict[str, float]:
     """
@@ -231,6 +200,7 @@ def _row_to_macros(row: Dict[str, str]) -> Dict[str, float]:
       - 탄수화물: 탄수화물(g)
       - 지방: 지방(g)
     2순위: 정규식 패턴으로 폴백 (100g 변형 열 포함)
+    ※ 반환: per100g 기준 값들만 (기존 호환)
     """
     # ── 이름 ──
     name_ko = (row.get("식품명") or row.get("대표식품명") or row.get("name_ko") or row.get("label_ko") or "").strip()
@@ -302,13 +272,105 @@ def _row_to_macros(row: Dict[str, str]) -> Dict[str, float]:
         "fat":      fat,
     }
 
-# ---------- CSV 매칭(영/한/동의어 + 퍼지) ----------
+# ---------- 신규: 행 → {per100g, total, weight_g} ----------
+
+def _row_to_entry(row: Dict[str, str]) -> Dict[str, object]:
+    """한 행에서 per100g + total + weight_g 동시 산출"""
+    m = _row_to_macros(row)  # per100g
+    # weight
+    weight_g = parse_weight_g(
+        row.get("식품중량") or row.get("1회제공량") or row.get("serving") or row.get("weight") or "100"
+    )
+    scale = (weight_g / 100.0) if weight_g else 1.0
+    total = {
+        "calories": round(m["calories"] * scale, 1),
+        "protein":  round(m["protein"]  * scale, 1),
+        "carb":     round(m["carb"]     * scale, 1),
+        "fat":      round(m["fat"]      * scale, 1),
+    }
+    per100g = {
+        "calories": m["calories"],
+        "protein":  m["protein"],
+        "carb":     m["carb"],
+        "fat":      m["fat"],
+    }
+    return {
+        "label_ko": m.get("label_ko") or "",
+        "weight_g": float(weight_g or 100.0),
+        "per100g": per100g,
+        "total": total,
+    }
+
+# ---------- 퍼블릭 API ----------
+
+def estimate_macros_from_csv(label_ko: str) -> Optional[Dict[str, float]]:
+    """
+    주어진 한글 라벨(예: '김밥', '샐러드')을 CSV에서 찾아
+    평균 칼로리/단백질/탄수화물/지방을 추정해 반환.
+    매칭 규칙(순서대로 시도):
+      1) 정규화된 완전일치
+      2) 부분일치(포함 관계)
+    일치가 하나도 없으면 None.
+    ※ per100g 평균값을 반환 (total 계산은 호출 측에서 weight_g로 환산)
+    """
+    if not label_ko:
+        return None
+
+    target_norm = _normalize_label(label_ko)
+    if not target_norm:
+        return None
+
+    rows = load_mfds_rows()
+    if not rows:
+        return None
+
+    exact_hits = []
+    partial_hits = []
+
+    for row in rows:
+        name = (row.get("식품명") or row.get("대표식품명") or row.get("name_ko") or row.get("label_ko") or "").strip()
+        if not name:
+            continue
+
+        name_norm = _normalize_label(name)
+        if not name_norm:
+            continue
+
+        if name_norm == target_norm:
+            exact_hits.append(row)
+        elif (target_norm in name_norm) or (name_norm in target_norm):
+            partial_hits.append(row)
+
+    def _aggregate(hit_rows: Iterable[Dict[str, str]]) -> Optional[Dict[str, float]]:
+        totals = defaultdict(float)
+        count = 0
+        for r in hit_rows:
+            m = _row_to_macros(r)
+            totals["calories"] += m["calories"]
+            totals["protein"]  += m["protein"]
+            totals["carb"]     += m["carb"]
+            totals["fat"]      += m["fat"]
+            count += 1
+        if count == 0:
+            return None
+        return {
+            "calories": round(totals["calories"] / count, 2),
+            "protein":  round(totals["protein"]  / count, 2),
+            "carb":     round(totals["carb"]     / count, 2),
+            "fat":      round(totals["fat"]      / count, 2),
+        }
+
+    agg = _aggregate(exact_hits) or _aggregate(partial_hits)
+    return agg
+
+# ---------- CSV 매칭(영/한/동의어 + 퍼지) : per100g만 (기존 호환) ----------
 
 def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, float]]:
     """
     AI 라벨과 CSV의 이름(ko/en/synonyms)을 최대한 매칭
     - 우선순위: exact en → exact ko → synonyms → 부분 포함(en/ko) → 🔥 퍼지 매칭(ko 목록)
     - 영라벨은 EN_KO_SYNONYMS를 통해 한글로 치환 후 시도
+    ※ 반환: per100g 기준 값(기존 호출 호환)
     """
     rows = load_mfds_rows()
     if not rows:
@@ -362,7 +424,7 @@ def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, float]]:
         ):
             return _row_to_macros(r)
 
-    # 5) 🔥 퍼지 매칭 (실제 항목명만 후보로 → 오탐 감소)
+    # 5) 🔥 퍼지 매칭
     if process and fuzz:
         ko_names: List[str] = []
         idx_map: Dict[str, List[int]] = {}
@@ -377,15 +439,14 @@ def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, float]]:
                 idx_map[nm].append(i)
 
         def _score(a: str, b: str) -> float:
-            # 정규화된 질의 vs 원문 후보
             return max(
                 fuzz.token_set_ratio(a, _normalize_label(b)),
                 fuzz.partial_ratio(a, _normalize_label(b)),
             )
 
         matches: List[Tuple[str, float, int]] = process.extract(
-            query=_normalize_label(label_raw),   # 정규화된 질의
-            choices=ko_names,                   # 원문 후보(정규화는 scorer에서 수행)
+            query=_normalize_label(label_raw),
+            choices=ko_names,
             scorer=_score,
             limit=FUZZY_CANDIDATES_LIMIT,
         )
@@ -395,5 +456,109 @@ def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, float]]:
                 for row_idx in idx_map.get(name, []):
                     return _row_to_macros(rows[row_idx])
 
-    # 퍼지 매칭 불가 or 임계 미달 → 실패
+    return None
+
+# ---------- CSV 매칭(영/한/동의어 + 퍼지) : ✅ 구조체 반환(권장) ----------
+
+def match_csv_entry(pred_label: str) -> Optional[Dict[str, object]]:
+    """
+    라벨 → {label_ko, weight_g, per100g, total} 구조체 반환 (저장은 total 기준)
+    - 정확일치(en/ko) → synonyms → 부분일치 → 영→한 동의어 치환 후 재탐색
+    - 마지막에 rapidfuzz로 ko 퍼지 매칭
+    """
+    rows = load_mfds_rows()
+    if not rows:
+        return None
+
+    label_raw = (pred_label or "").strip()
+    label = _normalize_label(label_raw)
+    if not label:
+        return None
+
+    # english → korean mapping
+    mapped = None
+    for en, ko in EN_KO_SYNONYMS.items():
+        if _normalize_label(en) == label:
+            mapped = ko
+            break
+
+    def _try_with(query_label: str) -> Optional[Dict[str, object]]:
+        qn = _normalize_label(query_label)
+
+        # 1) exact en
+        for r in rows:
+            if _normalize_label(r.get("name_en") or "") == qn:
+                return _row_to_entry(r)
+        # 2) exact ko
+        for r in rows:
+            if _normalize_label(r.get("식품명") or "") == qn:
+                return _row_to_entry(r)
+            if _normalize_label(r.get("대표식품명") or "") == qn:
+                return _row_to_entry(r)
+            if _normalize_label(r.get("name_ko") or "") == qn:
+                return _row_to_entry(r)
+            if _normalize_label(r.get("label_ko") or "") == qn:
+                return _row_to_entry(r)
+        # 3) synonyms
+        for r in rows:
+            syn = r.get("synonyms") or r.get("alias") or ""
+            if syn:
+                cand = [_normalize_label(x) for x in str(syn).replace(";", ",").split(",") if x.strip()]
+                if qn in cand:
+                    return _row_to_entry(r)
+        # 4) 부분 포함(en/ko)
+        for r in rows:
+            if qn and (
+                qn in _normalize_label(r.get("name_en") or "") or
+                qn in _normalize_label(r.get("식품명") or "") or
+                qn in _normalize_label(r.get("대표식품명") or "") or
+                qn in _normalize_label(r.get("name_ko") or "") or
+                qn in _normalize_label(r.get("label_ko") or "")
+            ):
+                return _row_to_entry(r)
+        return None
+
+    # 우선: 원문으로 시도
+    hit = _try_with(label_raw)
+    if hit:
+        return hit
+
+    # 영어→한글 매핑이 있으면 재시도
+    if mapped:
+        hit = _try_with(mapped)
+        if hit:
+            return hit
+
+    # 퍼지 매칭
+    if process and fuzz:
+        ko_names: List[str] = []
+        idx_map: Dict[str, List[int]] = {}
+        for i, r in enumerate(rows):
+            for key in ("식품명", "대표식품명", "name_ko", "label_ko"):
+                nm = (r.get(key) or "").strip()
+                if not nm:
+                    continue
+                if nm not in idx_map:
+                    idx_map[nm] = []
+                    ko_names.append(nm)
+                idx_map[nm].append(i)
+
+        def _score(a: str, b: str) -> float:
+            return max(
+                fuzz.token_set_ratio(a, _normalize_label(b)),
+                fuzz.partial_ratio(a, _normalize_label(b)),
+            )
+
+        matches: List[Tuple[str, float, int]] = process.extract(
+            query=_normalize_label(mapped or label_raw),
+            choices=ko_names,
+            scorer=_score,
+            limit=FUZZY_CANDIDATES_LIMIT,
+        )
+
+        for name, score, _ in matches:
+            if score >= FUZZY_SCORE_THRESHOLD:
+                for row_idx in idx_map.get(name, []):
+                    return _row_to_entry(rows[row_idx])
+
     return None

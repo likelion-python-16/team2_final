@@ -1,11 +1,16 @@
-# 임계값: settings.MEAL_MATCH_THRESHOLD (기본 70.0)
-# 임계값 미달 허용 옵션: settings.ALLOW_FALLBACK_SAVE_BELOW (기본 False)
-# CSV 가늠 실패 시 최소 kcal: settings.DEFAULT_FALLBACK_KCAL (기본 300.0)
-# 자동 저장(프리뷰 아님)은 임계값을 통과(passed) 해야만 진행되도록 수정
-
 # ai/views.py
+# 임계값/폴백/표시 규칙 요약:
+# - settings.MEAL_MATCH_THRESHOLD (기본 70.0)
+# - settings.ALLOW_FALLBACK_SAVE_BELOW (기본 False)
+# - settings.DEFAULT_FALLBACK_KCAL (기본 300.0)
+# - 프리뷰 응답: macros(=100g, 레거시 표시), macros_per100g(=명시적 100g), macros_total(=총합), weight_g
+# - 저장/합산은 항상 macros_total 기준
+
+from __future__ import annotations
+
 import csv
 import mimetypes
+import re
 from datetime import date
 from typing import Dict, Any, List, Optional
 
@@ -20,7 +25,7 @@ from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.response import Response
 
 from intakes.models import Food, Meal, MealItem, NutritionLog
-from ai.utils import estimate_macros_from_csv  # ✅ CSV 가늠값 사용
+from ai.utils import match_csv_entry, estimate_macros_from_csv  # CSV 가늠값(100g 기준 평균)
 
 # ==============================================
 # Hugging Face helpers
@@ -131,47 +136,93 @@ def _to_float(v: Any) -> Optional[float]:
         return None
 
 
-def _extract_macros_from_row(row: Dict[str, Any]) -> Dict[str, float]:
-    """
-    CSV가 어떤 컬럼명을 쓰든 최대한 유연하게 집계:
-      - kcal / calories / energy_kcal
-      - protein / protein_g
-      - carb / carbs / carbohydrate / carbohydrate_g
-      - fat / fat_g
-    """
-    name_ko = row.get("name_ko") or row.get("ko") or row.get("name") or row.get("food_ko")
-    name_en = row.get("name_en") or row.get("en") or row.get("food_en")
+_WEIGHT_NUMBER_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*g", re.IGNORECASE)
 
+
+def _parse_weight(v: Any) -> float:
+    """
+    '550g' / '총중량 300 g' / '1개(180g)' / '180 g/pack' → 180.0
+    비어있으면 100.0
+    """
+    if v is None:
+        return 100.0
+    s = str(v).strip().lower().replace("그램", "g")
+    m = _WEIGHT_NUMBER_RE.search(s)
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            pass
+    # '300'처럼 단위 없는 숫자도 허용
+    try:
+        return float(s)
+    except Exception:
+        return 100.0
+
+
+def _extract_macros_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    CSV 한 줄에서:
+      - per100g: 100g 기준(그대로/보조)
+      - total:   1회 제공량(=weight_g) 기준(메인) ← 항상 per100g * (weight_g/100)로 계산
+    """
+    # 이름
+    label_ko = (
+        (row.get("식품명") or row.get("name_ko") or row.get("label_ko") or row.get("name") or "").strip()
+    )
+    # 1회 제공량(총중량 g)
+    weight_g = _parse_weight(
+        row.get("식품중량") or row.get("1회제공량") or row.get("serving") or row.get("weight") or "100"
+    )
+
+    # 100g 기준 주요 4대영양
     kcal = (
-        _to_float(row.get("kcal"))
+        _to_float(row.get("에너지(kcal)"))
+        or _to_float(row.get("kcal"))
         or _to_float(row.get("calories"))
         or _to_float(row.get("energy_kcal"))
         or 0.0
     )
     protein = (
-        _to_float(row.get("protein"))
+        _to_float(row.get("단백질(g)"))
+        or _to_float(row.get("protein"))
         or _to_float(row.get("protein_g"))
         or 0.0
     )
     carbs = (
-        _to_float(row.get("carb"))
+        _to_float(row.get("탄수화물(g)"))
+        or _to_float(row.get("carb"))
         or _to_float(row.get("carbs"))
         or _to_float(row.get("carbohydrate"))
         or _to_float(row.get("carbohydrate_g"))
         or 0.0
     )
     fat = (
-        _to_float(row.get("fat"))
+        _to_float(row.get("지방(g)"))
+        or _to_float(row.get("fat"))
         or _to_float(row.get("fat_g"))
         or 0.0
     )
 
-    return {
-        "label_ko": str(name_ko or name_en or "").strip(),
+    per100g = {
         "calories": round(kcal or 0.0, 1),
-        "protein": round(protein or 0.0, 1),
-        "carb": round(carbs or 0.0, 1),
-        "fat": round(fat or 0.0, 1),
+        "protein":  round(protein or 0.0, 1),
+        "carb":     round(carbs or 0.0, 1),
+        "fat":      round(fat or 0.0, 1),
+    }
+    scale = (weight_g / 100.0) if weight_g else 1.0
+    total = {
+        "calories": round((kcal or 0.0)    * scale, 1),
+        "protein":  round((protein or 0.0) * scale, 1),
+        "carb":     round((carbs or 0.0)   * scale, 1),
+        "fat":      round((fat or 0.0)     * scale, 1),
+    }
+
+    return {
+        "label_ko": label_ko,
+        "weight_g": float(weight_g or 100.0),  # 1회 제공량 g
+        "per100g": per100g,                    # 100g 기준(보조)
+        "total": total,                        # 1회 제공량 기준(메인)
     }
 
 
@@ -179,6 +230,7 @@ def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, Any]]:
     """
     AI 라벨과 CSV의 이름(ko/en/synonyms)을 최대한 매칭
     - 우선순위: exact en → exact ko → synonyms → 부분 포함(en/ko)
+    ※ per100g/total/weight_g를 함께 반환
     """
     rows = _load_mfds_rows()
     if not rows:
@@ -195,7 +247,7 @@ def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, Any]]:
 
     # 2) exact ko
     for r in rows:
-        if _norm(r.get("name_ko")) == label:
+        if _norm(r.get("식품명") or r.get("name_ko")) == label:
             return _extract_macros_from_row(r)
 
     # 3) synonyms (쉼표/세미콜론 구분)
@@ -209,7 +261,10 @@ def _match_csv_by_label(pred_label: str) -> Optional[Dict[str, Any]]:
 
     # 4) 부분 포함 (en/ko)
     for r in rows:
-        if label and (label in _norm(r.get("name_en")) or label in _norm(r.get("name_ko"))):
+        if label and (
+            label in _norm(r.get("name_en"))
+            or label in _norm(r.get("식품명") or r.get("name_ko"))
+        ):
             return _extract_macros_from_row(r)
 
     return None
@@ -320,7 +375,8 @@ class AIViewSet(viewsets.ViewSet):
         - commit 플래그 지원:
           * 'preview' / '0' / 'false' / 'no' → 저장하지 않고 미리보기만
           * 그 외(기본): 로그인 사용자는 (임계 통과 시) 자동 저장
-        - 프리뷰 응답에는 can_save + save_payload 포함 (커밋 버튼에서 그대로 사용)
+        - 프리뷰 응답에는 can_save + save_payload 포함
+        - 응답에 100g 기준(per100g) + 1회제공량 총합(total) 동시 제공, 저장은 total 기준
         """
         # 0) 커밋 모드 파싱
         raw = (request.POST.get("commit") or request.data.get("commit") or "auto").strip().lower()
@@ -349,9 +405,6 @@ class AIViewSet(viewsets.ViewSet):
             return Response({"error": "인식 결과가 없습니다."}, status=400)
 
         # 3) 결과 파싱
-        def _normalize_label(s: str) -> str:
-            return _norm(s)
-
         top_label = str(predictions[0].get("label", "")).strip()
         try:
             best_score = float(predictions[0].get("score", 0.0))
@@ -370,7 +423,9 @@ class AIViewSet(viewsets.ViewSet):
 
         # 4) DB 매칭
         label_ko: Optional[str] = None
-        macros: Dict[str, float] = {}
+        per100g: Dict[str, float] = {}
+        total: Dict[str, float] = {}
+        weight_g: float = 100.0
         found_food = None
 
         for p in predictions:
@@ -382,29 +437,32 @@ class AIViewSet(viewsets.ViewSet):
             if food_obj:
                 found_food = food_obj
                 label_ko = (getattr(food_obj, "name_ko", None) or getattr(food_obj, "name", None) or "").strip() or top_label
-                macros = {
+                # Food 모델은 보통 100g 기준을 갖는다 → weight 정보 없음 → weight=100
+                per100g = {
                     "calories": float(getattr(food_obj, "kcal_per_100g", 0.0) or 0.0),
                     "protein":  float(getattr(food_obj, "protein_g_per_100g", 0.0) or 0.0),
                     "carb":     float(getattr(food_obj, "carb_g_per_100g", 0.0) or 0.0),
                     "fat":      float(getattr(food_obj, "fat_g_per_100g", 0.0) or 0.0),
                 }
+                weight_g = 100.0
+                total = {k: round(v, 1) for k, v in per100g.items()}  # 100g == total when weight=100
                 break
 
-        # 5) CSV 매칭 (DB 실패 시)
-        if not macros:
+        # 5) CSV 매칭 (DB 실패 시) — 1회제공량 총합 기준 계산 포함
+        if not per100g:
             for p in predictions:
                 raw_label = p.get("label")
                 if not raw_label:
                     continue
-                csv_hit = _match_csv_by_label(raw_label)
-                if csv_hit:
-                    label_ko = (csv_hit.get("label_ko") or "").strip() or top_label
-                    macros = {
-                        "calories": float(csv_hit.get("calories", 0.0) or 0.0),
-                        "protein":  float(csv_hit.get("protein", 0.0) or 0.0),
-                        "carb":     float(csv_hit.get("carb", 0.0) or 0.0),
-                        "fat":      float(csv_hit.get("fat", 0.0) or 0.0),
-                    }
+                hit = match_csv_entry(raw_label)
+                if hit:
+                    label_ko = (hit.get("label_ko") or "").strip() or top_label
+                    weight_g = float(hit.get("weight_g") or 100.0)
+                    per100g = hit.get("per100g") or {}
+                    total   = hit.get("total") or {}
+                    for k in ("calories","protein","carb","fat"):
+                        per100g[k] = float(per100g.get(k, 0.0) or 0.0)
+                        total[k]   = float(total.get(k, 0.0) or 0.0)
                     break
 
         # 시간대별 식사타입
@@ -418,7 +476,7 @@ class AIViewSet(viewsets.ViewSet):
         else:
             meal_type = "간식"
 
-        matched = bool(macros)
+        matched = bool(per100g)  # per100g이 있으면 매칭 성공
 
         # ✅ 임계/옵션 계산
         threshold = float(getattr(settings, "MEAL_MATCH_THRESHOLD", 70.0))
@@ -427,39 +485,51 @@ class AIViewSet(viewsets.ViewSet):
         confidence_pct = round(best_score * 100.0, 1)
         passed = bool(matched and (confidence_pct >= threshold))
 
-        # 6) 프리뷰 응답: 미리보기이거나, 비로그인이거나, (임계 미달 포함) 일반적으로 여기서 반환
+        # 6) 프리뷰 응답 (or 자동저장 불가)
         if commit_preview or (not request.user.is_authenticated) or (not passed):
-            # 기본 응답 값
             source = "unmatched"
             if matched:
                 source = "db" if found_food else "csv"
 
             can_save = False
             save_payload = None
-            macros_out = {}
+
+            macros_for_display = per100g if matched else {}
+            macros_total = total if matched else {}
 
             if request.user.is_authenticated:
                 if passed:
-                    # 임계 통과 → 정상 저장 가능
                     can_save = True
-                    macros_out = macros or {}
                     save_payload = {
                         "label_ko": (label_ko or top_label),
-                        "macros": macros_out,
+                        "macros": macros_total,            # ✅ 저장/합산은 총합(1회제공량) 기준만
                         "meal_type": meal_type,
                         "source": source,
                         "food_id": getattr(found_food, "id", None),
                     }
-                elif allow_fallback_below:
-                    # 임계 미달인데 옵션 허용 → CSV 가늠값(없으면 기본 kcal)으로 저장 허용
+                elif allow_fallback_below and not matched:   # ✅ 매칭 실패시에만 폴백/가늠값 적용
+                    # 임계 미달 허용 → CSV 가늠값(100g 평균) 사용, 총합은 weight_g 비례 환산
                     est = estimate_macros_from_csv(label_ko or top_label) if (label_ko or top_label) else None
                     if est and (est.get("calories", 0) or 0) > 0:
                         can_save = True
                         source = "csv_estimate"
-                        macros_out = est
+                        macros_for_display = {
+                            "calories": float(est.get("calories", 0.0) or 0.0),
+                            "protein":  float(est.get("protein", 0.0) or 0.0),
+                            "carb":     float(est.get("carb", 0.0) or 0.0),
+                            "fat":      float(est.get("fat", 0.0) or 0.0),
+                        }
+                        weight_g = float(weight_g or 100.0)
+                        scale = (weight_g / 100.0) if weight_g else 1.0
+                        macros_total = {
+                            "calories": round(macros_for_display["calories"] * scale, 1),
+                            "protein":  round(macros_for_display["protein"]  * scale, 1),
+                            "carb":     round(macros_for_display["carb"]     * scale, 1),
+                            "fat":      round(macros_for_display["fat"]      * scale, 1),
+                        }
                         save_payload = {
                             "label_ko": (label_ko or top_label),
-                            "macros": est,
+                            "macros": macros_total,        # ✅ 총합 기준 저장
                             "meal_type": meal_type,
                             "source": source,
                             "food_id": None,
@@ -467,10 +537,11 @@ class AIViewSet(viewsets.ViewSet):
                     else:
                         can_save = True
                         source = "default"
-                        macros_out = {"calories": fallback_kcal, "protein": 0.0, "carb": 0.0, "fat": 0.0}
+                        macros_for_display = {"calories": fallback_kcal, "protein": 0.0, "carb": 0.0, "fat": 0.0}
+                        macros_total = dict(macros_for_display)  # weight 미상 → 동일
                         save_payload = {
                             "label_ko": (label_ko or top_label),
-                            "macros": macros_out,
+                            "macros": macros_total,        # ✅ 총합 기준 저장
                             "meal_type": meal_type,
                             "source": source,
                             "food_id": None,
@@ -483,16 +554,21 @@ class AIViewSet(viewsets.ViewSet):
                     "label": top_label,
                     "label_ko": label_ko or top_label,
                     "confidence": confidence_pct,
-                    "macros": macros if matched else {},
+                    # --- 표시/호환 ---
+                    "macros": macros_for_display,      # ✅ 프론트 표시용(100g 기준)
+                    "macros_per100g": per100g or {},   # 100g 기준 명시
+                    "macros_total": macros_total or {},# ✅ 1회 제공량 총합(메인)
+                    "weight_g": float(weight_g or 100.0),
+                    # ---------------
                     "alternatives": alternatives,
                     "meal_type": meal_type,
                     "can_save": can_save,
                     "has_payload": bool(save_payload),
-                    "save_payload": save_payload,
+                    "save_payload": save_payload,      # ✅ 저장은 총합 기준만 전달
                     # 🔎 디버그
                     "debug": {
                         "is_auth": bool(request.user.is_authenticated),
-                        "matched": bool(macros),
+                        "matched": bool(per100g),
                         "db_hit": bool(found_food),
                         "csv_count": len(_load_mfds_rows()),
                         "top_label": top_label,
@@ -500,6 +576,7 @@ class AIViewSet(viewsets.ViewSet):
                         "threshold": threshold,
                         "allow_fallback_below": allow_fallback_below,
                         "fallback_kcal": fallback_kcal,
+                        "weight_g": float(weight_g or 100.0),
                     },
                 },
                 status=200,
@@ -514,14 +591,17 @@ class AIViewSet(viewsets.ViewSet):
                     log_date=today,
                     meal_type=meal_type,
                 )
+                # ✅ 자동 저장도 총합 기준으로 기록
+                macros_total = total or per100g or {"calories": 0.0, "protein": 0.0, "carb": 0.0, "fat": 0.0}
+
                 meal_item = MealItem.objects.create(
                     meal=meal,
                     food=found_food,
                     name=(label_ko or top_label),
-                    kcal=macros["calories"],
-                    protein_g=macros["protein"],
-                    carb_g=macros["carb"],
-                    fat_g=macros["fat"],
+                    kcal=macros_total["calories"],
+                    protein_g=macros_total["protein"],
+                    carb_g=macros_total["carb"],
+                    fat_g=macros_total["fat"],
                 )
                 log, _ = NutritionLog.objects.get_or_create(user=request.user, date=today)
                 try:
@@ -544,7 +624,12 @@ class AIViewSet(viewsets.ViewSet):
                     "label": top_label,
                     "label_ko": label_ko or top_label,
                     "confidence": confidence_pct,
-                    "macros": macros,
+                    # --- 표시/호환 ---
+                    "macros": per100g,                 # 화면엔 100g 기준(보조)
+                    "macros_per100g": per100g,
+                    "macros_total": macros_total,       # 총합(1회 제공량, 메인)
+                    "weight_g": float(weight_g or 100.0),
+                    # ---------------
                     "alternatives": alternatives,
                     "meal_type": meal_type,
                     "meal_item_id": meal_item.id,
@@ -557,6 +642,7 @@ class AIViewSet(viewsets.ViewSet):
                         "top_label": top_label,
                         "confidence_pct": confidence_pct,
                         "threshold": threshold,
+                        "weight_g": float(weight_g or 100.0),
                     },
                 },
                 status=200,
@@ -579,7 +665,7 @@ class AIViewSet(viewsets.ViewSet):
         요청(JSON 또는 form-data):
         {
           "label_ko": "김치찌개",
-          "macros": {"calories": 350, "protein": 20, "carb": 25, "fat": 15},
+          "macros": {"calories": 350, "protein": 20, "carb": 25, "fat": 15},  # ✅ 총합(1회 제공량) 기준만 전달됨
           "meal_type": "아침|점심|저녁|간식",
           "source": "db|csv|csv_estimate|default",
           "food_id": 123  # 선택
@@ -619,6 +705,7 @@ class AIViewSet(viewsets.ViewSet):
                     log_date=today,
                     meal_type=meal_type,
                 )
+                # ✅ 총합(1회 제공량) 기준으로만 기록
                 meal_item = MealItem.objects.create(
                     meal=meal,
                     food=food_obj,
