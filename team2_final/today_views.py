@@ -11,25 +11,56 @@ from rest_framework.response import Response
 
 
 def _round1(v: Any) -> float:
-    """숫자를 소수 1자리로 반올림. None/NaN 안전 처리."""
+    """숫자를 소수 1자리로 반올림. None/NaN/inf 안전 처리."""
     try:
         x = float(v or 0.0)
     except Exception:
         return 0.0
-    # NaN/inf 방어
     if x != x or x in (float("inf"), float("-inf")):
         return 0.0
     return round(x, 1)
+
+
+# 선택: WorkoutLog가 존재하는 환경에서 운동 시간 합계 사용
+try:
+    from tasks.models import WorkoutLog
+    HAS_WORKOUT_LOG = True
+except Exception:
+    HAS_WORKOUT_LOG = False
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def today_summary(request):
     """
-    오늘 요약:
-      - dailygoal: DailyGoal(있으면) 목표/실적/점수
-      - nutrition: NutritionLog 합계(kcal_total, protein_total_g, carb_total_g, fat_total_g)
-      - tasks: 오늘의 운동 태스크 목록
+    오늘 요약 엔드포인트
+
+    응답 스키마:
+    {
+      "date": "YYYY-MM-DD",
+      "dailygoal": {
+        "date": "...",
+        "kcal_target": number,
+        "protein_target_g": number,
+        "workout_minutes_target": number,
+        "kcal_actual": number,
+        "protein_actual_g": number,
+        "workout_minutes_actual": number,
+        "score": number|null
+      } | null,
+      "workout_minutes": number,       # ✅ WorkoutLog 합계(분)
+      "nutrition": {
+        "date": "...",
+        "kcal": number,
+        "protein_g": number,
+        "fat_g": number,
+        "carb_g": number
+      },
+      "tasks": [
+        { "id":..., "exercise_id":..., "exercise_name":..., "duration_min":..., "order":..., "completed": bool, "skipped": bool },
+        ...
+      ]
+    }
     """
     user = request.user
     today = date.today()
@@ -40,7 +71,6 @@ def today_summary(request):
         from goals.models import DailyGoal
         dg = DailyGoal.objects.filter(user=user, date=today).first()
         if dg:
-            # score 없으면 completion_score 대체 사용
             score_val = getattr(dg, "score", None)
             if score_val is None:
                 score_val = getattr(dg, "completion_score", None)
@@ -53,10 +83,29 @@ def today_summary(request):
                 "kcal_actual": _round1(getattr(dg, "kcal_actual", 0)),
                 "protein_actual_g": _round1(getattr(dg, "protein_actual_g", 0)),
                 "workout_minutes_actual": _round1(getattr(dg, "workout_minutes_actual", 0)),
-                "score": _round1(score_val),
+                "score": _round1(score_val) if score_val is not None else None,
             }
     except Exception:
         dailygoal = None
+
+    # ---- WorkoutLog 합계 (있으면) ----
+    workout_minutes = 0.0
+    if HAS_WORKOUT_LOG:
+        try:
+            workout_minutes = float(
+                WorkoutLog.objects
+                .filter(user=user, date=today)
+                .aggregate(Sum("duration_min"))["duration_min__sum"]
+                or 0.0
+            )
+        except Exception:
+            workout_minutes = 0.0
+    workout_minutes = _round1(workout_minutes)
+
+    # DailyGoal에 보강 반영(응답 레벨에서만 보강)
+    if dailygoal is not None:
+        if (dailygoal.get("workout_minutes_actual") or 0.0) == 0.0 and workout_minutes > 0.0:
+            dailygoal["workout_minutes_actual"] = workout_minutes
 
     # ---- NutritionLog 합계 (필드명: date / *_total) ----
     nutrition = {"date": today.isoformat(), "kcal": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carb_g": 0.0}
@@ -64,7 +113,7 @@ def today_summary(request):
         from intakes.models import NutritionLog
         agg = (
             NutritionLog.objects
-            .filter(user=user, date=today)  # ✅ log_date 아님!
+            .filter(user=user, date=today)  # ✅ 주의: log_date 아님
             .aggregate(
                 kcal=Sum("kcal_total"),
                 protein=Sum("protein_total_g"),
@@ -79,8 +128,7 @@ def today_summary(request):
             "carb_g": _round1(agg.get("carbs")),
         })
     except Exception:
-        # 모델이 없거나 마이그레이션 전이라면 0으로 유지
-        pass
+        pass  # 모델 부재/마이그레 전이면 0 유지
 
     # ---- Tasks (오늘 due 또는 due 없음) ----
     tasks = []
@@ -109,6 +157,7 @@ def today_summary(request):
     return Response({
         "date": today.isoformat(),
         "dailygoal": dailygoal,
+        "workout_minutes": workout_minutes,  # ✅ 프런트에서 링/요약에 바로 사용
         "nutrition": nutrition,
         "tasks": tasks,
     })

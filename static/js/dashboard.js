@@ -7,13 +7,17 @@
       ? window.authHeaders()
       : { "Content-Type": "application/json" };
 
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return m ? decodeURIComponent(m[2]) : '';
+  }
+
   const toISODate = (d) => {
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, "0");
     const dd = String(d.getDate()).padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   };
-
   const TODAY_ISO = toISODate(new Date());
 
   // ========= 진행원형 링 초기화/업데이트 =========
@@ -53,13 +57,11 @@
   }
 
   function updateMainProgress(percent) {
-    // 진행률 숫자/바/링 모두 갱신
     const percentLabel = document.getElementById("progressPercent");
     const goalFill = document.getElementById("progressGoalFill");
     if (percentLabel) percentLabel.textContent = `${percent}%`;
     if (goalFill) goalFill.style.width = `${percent}%`;
 
-    // 카드 내부 링(있다면) 업데이트
     const progressCard = document.getElementById("progress");
     if (!progressCard) return;
     const ring = progressCard.querySelector(".progress-ring");
@@ -73,22 +75,21 @@
   const progressCard = document.getElementById("progress");
   const goalCount = document.getElementById("progressGoalCount");
   const goalTotal = document.getElementById("progressGoalTotal");
+  // ✅ “완료” 미니 통계
+  const completedMiniEl = document.getElementById("sum-completed-tasks");
 
   // ========= Daily Tasks 렌더/진행률 갱신 =========
-  function createTaskElement(text, completed = false, type = "workout") {
+  function createTaskElement({ text, completed = false, type = "workout", id = null }) {
     const li = document.createElement("li");
     li.className = `task-card__item${completed ? " is-complete" : ""}`;
     li.dataset.taskType = type;
     li.dataset.completed = completed ? "true" : "false";
+    if (id !== null && id !== undefined) li.dataset.taskId = String(id);
 
     li.innerHTML = `
       <label class="task-card__toggle">
-        <input type="checkbox" class="task-card__input" data-task-checkbox ${
-          completed ? "checked" : ""
-        }>
-        <span class="task-card__checkbox" data-state="${
-          completed ? "checked" : "unchecked"
-        }" aria-hidden="true">
+        <input type="checkbox" class="task-card__input" data-task-checkbox ${completed ? "checked" : ""}>
+        <span class="task-card__checkbox" data-state="${completed ? "checked" : "unchecked"}" aria-hidden="true">
           <svg viewBox="0 0 24 24" focusable="false">
             <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"></path>
           </svg>
@@ -114,36 +115,60 @@
     if (goalCount) goalCount.textContent = String(completed);
     if (goalTotal) goalTotal.textContent = String(total);
     if (taskCountLabel) taskCountLabel.textContent = `오늘 목표 ${total}개`;
+    if (completedMiniEl) completedMiniEl.textContent = String(completed); // ✅ 미니 통계 갱신
 
-    // 카드 데이터 속성도 갱신(필요 시 파생위젯 참고)
     if (progressCard) {
       progressCard.dataset.progressTotal = String(total);
       progressCard.dataset.progressComplete = String(completed);
     }
-
     updateMainProgress(percent);
   }
 
-  function handleTaskToggle(event) {
+  async function handleTaskToggle(event) {
     const checkbox =
       event.target.closest && event.target.closest("[data-task-checkbox]");
     if (!checkbox) return;
+
     const item = checkbox.closest(".task-card__item");
     if (!item) return;
+
+    const taskId = item.dataset.taskId; // ✅ 서버 토글용 ID
     const text = item.querySelector(".task-card__text");
     const indicator = item.querySelector(".task-card__checkbox");
-    const isComplete = checkbox.checked;
-    item.classList.toggle("is-complete", isComplete);
-    item.dataset.completed = isComplete ? "true" : "false";
-    if (text) text.classList.toggle("is-complete", isComplete);
-    if (indicator) indicator.dataset.state = isComplete ? "checked" : "unchecked";
-    updateDailyGoalProgress();
+    const willComplete = !!checkbox.checked;
+
+    // 낙관적 반영 전에 서버에 반영
+    try {
+      if (taskId) {
+        const res = await fetch(`${API}/taskitems/${taskId}/toggle-complete/`, {
+          method: "POST",
+          headers: {
+            ...getAuthHeaders(),
+            "X-CSRFToken": getCookie("csrftoken"),
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({ value: willComplete }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.detail || "toggle failed");
+      }
+      // ✅ 성공 시 DOM 반영
+      item.classList.toggle("is-complete", willComplete);
+      item.dataset.completed = willComplete ? "true" : "false";
+      if (text) text.classList.toggle("is-complete", willComplete);
+      if (indicator) indicator.dataset.state = willComplete ? "checked" : "unchecked";
+      updateDailyGoalProgress();
+    } catch (err) {
+      // 실패 시 롤백
+      checkbox.checked = !willComplete;
+      console.error(err);
+      alert("완료 처리에 실패했어요.");
+    }
   }
 
   // ========= 서버에서 오늘 플랜 → Tasks 로드 후 렌더 =========
   async function fetchTodayPlanDetail() {
     try {
-      // 1) 오늘 날짜 기준 첫 플랜 찾기
       const r = await fetch(
         `${API}/workoutplans/by-date/?date=${encodeURIComponent(TODAY_ISO)}`,
         { headers: getAuthHeaders() }
@@ -156,7 +181,6 @@
         : [];
       if (!r.ok || !plans.length) return null;
 
-      // 2) 상세(Tasks 포함) 가져오기
       const plan = plans[0];
       const r2 = await fetch(`${API}/workoutplans/${plan.id}/`, {
         headers: getAuthHeaders(),
@@ -174,7 +198,7 @@
     if (!taskList) return;
     const tasks = Array.isArray(planDetail?.tasks) ? planDetail.tasks : [];
 
-    // 리스트 재구성
+    // 리스트 재구성 (완료상태/ID 반영)
     taskList.innerHTML = tasks
       .map((t) => {
         const label = [
@@ -185,20 +209,22 @@
           .filter(Boolean)
           .join(" · ");
 
-        // 항목 DOM
+        const completed = !!t.completed; // ✅ 완료 상태
         const li = document.createElement("li");
-        li.className = "task-card__item";
+        li.className = `task-card__item${completed ? " is-complete" : ""}`;
         li.dataset.taskType = "workout";
-        li.dataset.completed = "false";
+        li.dataset.completed = completed ? "true" : "false";
+        li.dataset.taskId = String(t.id || "");
+
         li.innerHTML = `
           <label class="task-card__toggle">
-            <input type="checkbox" class="task-card__input" data-task-checkbox>
-            <span class="task-card__checkbox" data-state="unchecked" aria-hidden="true">
+            <input type="checkbox" class="task-card__input" data-task-checkbox ${completed ? "checked" : ""}>
+            <span class="task-card__checkbox" data-state="${completed ? "checked" : "unchecked"}" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
                 <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"></path>
               </svg>
             </span>
-            <span class="task-card__text">${label}</span>
+            <span class="task-card__text${completed ? " is-complete" : ""}">${label}</span>
             <span class="task-card__dot task-card__dot--workout" aria-hidden="true"></span>
           </label>
         `;
@@ -259,7 +285,7 @@
       if (!input) return;
       const value = input.value.trim();
       if (!value) return removeEditor();
-      const newTask = createTaskElement(value, false, "custom");
+      const newTask = createTaskElement({ text: value, completed: false, type: "custom", id: null });
       li.replaceWith(newTask);
       updateDailyGoalProgress();
     };
@@ -295,7 +321,7 @@
 
   // ========= 이벤트 바인딩/초기화 =========
   if (taskList) {
-    // 토글 이벤트 위임
+    // 토글 이벤트 위임 → 서버 반영 포함
     taskList.addEventListener("change", handleTaskToggle);
 
     // DOM 변동 시(수동 추가 등) 진행률 재계산
@@ -312,10 +338,6 @@
   refreshDashboardFromServer({ silent: true });
 
   // ========= 교차-페이지 동기화(선택) =========
-  // workouts 페이지에서 완료 후:
-  //  - window.dispatchEvent(new CustomEvent('plan:updated'))
-  //  - 또는 localStorage.setItem('planUpdatedAt', Date.now())
-  //  - 또는 BroadcastChannel('plan_updates').postMessage('updated')
   window.addEventListener("plan:updated", () =>
     refreshDashboardFromServer({ silent: false })
   );
@@ -334,7 +356,6 @@
   });
 
   // ========= (옵션) 식단 업로더 위젯: 기존 기능 유지 =========
-  // 아래는 기존 UI 보존용. 위젯이 없으면 그냥 무시됨.
   (function initMealAnalyzer() {
     const MEAL_FEEDBACK_ICONS = {
       good: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>',

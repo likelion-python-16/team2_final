@@ -549,6 +549,45 @@ class TaskItemViewSet(viewsets.ModelViewSet):
         ti.save(update_fields=update_fields)
         return Response({"ok": True, "id": ti.id, "completed": ti.completed, "completed_at": ti.completed_at})
 
+        # ✅ WorkoutLog 동기화 (모델 있을 때만)
+        if HAS_WORKOUT_LOG:
+            today_ = timezone.localdate()
+            dur = int(getattr(ti, "duration_min", 0) or 0)
+
+            if new_val:
+                # 완료 → 오늘 로그 업서트
+                wl, created = WorkoutLog.objects.get_or_create(
+                    user=request.user,
+                    task_item=ti,
+                    date=today_,                      # ← 키에 date 포함 (권장)
+                    defaults={"duration_min": dur},
+                )
+                if not created and wl.duration_min != dur:
+                    wl.duration_min = dur
+                    wl.save(update_fields=["duration_min"])
+            else:
+                # 완료 해제 → 오늘 로그만 제거(다른 날짜 보존)
+                WorkoutLog.objects.filter(
+                    user=request.user, task_item=ti, date=today_
+                ).delete()
+
+
+            # 3) (선택) DailyGoal의 workout_minutes_actual 업데이트
+            try:
+                from goals.models import DailyGoal
+                total_min = (
+                    WorkoutLog.objects
+                    .filter(user=request.user, date=today_)
+                    .aggregate(Sum("duration_min"))["duration_min__sum"] or 0
+                )
+                dg, _ = DailyGoal.objects.get_or_create(user=request.user, date=today_)
+                dg.workout_minutes_actual = int(total_min)
+                dg.save(update_fields=["workout_minutes_actual"])
+            except Exception:
+                pass
+
+        return Response({"ok": True, "id": ti.id, "completed": ti.completed, "completed_at": ti.completed_at})
+    
     # ✅ POST /taskitems/{id}/toggle-skip/
     @action(detail=True, methods=["post"], url_path="toggle-skip")
     def toggle_skip(self, request, pk=None):
@@ -804,12 +843,30 @@ def dashboard(request):
 
     # 1) 운동 합계 (WorkoutLog 있을 때)
     if HAS_WORKOUT_LOG:
-        today_totals["workout_minutes"] = (
+        wl_sum = (
             WorkoutLog.objects
             .filter(user=request.user, date=today)
-            .aggregate(Sum("duration_min"))["duration_min__sum"]
-            or 0
+            .aggregate(total=Sum("duration_min"))
+            .get("total") or 0
         )
+        today_totals["workout_minutes"] = int(wl_sum)
+    else:
+        today_totals["workout_minutes"] = 0
+        
+    # ✅ 폴백: WorkoutLog가 0이면, 오늘 완료된 TaskItem duration 합계로 보정
+    if today_totals["workout_minutes"] == 0:
+        try:
+            ti_sum = (
+                TaskItem.objects
+                .filter(workout_plan__user=request.user,
+                        workout_plan__created_at__date=today,
+                        completed=True)
+                .aggregate(Sum("duration_min"))["duration_min__sum"]
+                or 0
+            )
+            today_totals["workout_minutes"] = ti_sum
+        except Exception:
+            pass
 
     # 2) 식단 합계 (NutritionLog 우선, 없으면 MealItem 대안)
     if HAS_INTAKE_MODELS:
