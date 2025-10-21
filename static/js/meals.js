@@ -1,8 +1,7 @@
 (function () {
-  console.log('[meals.js v5.5] init');
+  console.log('[meals.js v5.3-fix] init');
 
-  // ---------------------- DOM refs ----------------------
-  const widget           = document.querySelector('[data-meal-photo-widget]');
+  const widget = document.querySelector('[data-meal-photo-widget]');
   if (!widget) return;
 
   const input            = widget.querySelector('[data-photo-input]');
@@ -12,30 +11,30 @@
   const resetButton      = widget.querySelector('[data-photo-reset]');
   const loadingState     = widget.querySelector('[data-photo-loading]');
 
-  const resultContainer  = widget.querySelector('[data-analysis-container]');
   const resultCard       = document.getElementById('mealAnalysisCard');
   const resultTitle      = document.getElementById('mealAnalysisTitle');
   const resultLabel      = document.getElementById('mealAnalysisLabel');
   const resultConfidence = document.getElementById('mealAnalysisConfidence');
+  const macrosTotalEl    = document.getElementById('mealAnalysisMacrosTotal');
+  const macrosPer100El   = document.getElementById('mealAnalysisMacrosPer100');
   const resultServing    = document.getElementById('mealAnalysisServing');
-  const resultMacros     = document.getElementById('mealAnalysisMacros');
   const resultNote       = document.getElementById('mealAnalysisNote');
   const resultAlt        = document.getElementById('mealAnalysisAlternatives');
+  const resultContainer  = widget.querySelector('[data-analysis-container]');
   const errorBox         = document.getElementById('mealAnalysisError');
 
-  let   commitButton     = widget.querySelector('[data-photo-commit]');
+  let commitButton       = widget.querySelector('[data-photo-commit]');
   const commitErrorBox   = document.getElementById('mealCommitError');
 
   const historyList      = document.getElementById('mealHistoryList');
 
   if (!input || !emptyState || !previewState || !previewImage) return;
 
-  // ---------------------- state ----------------------
   let revokeUrl = null;
-  let lastSavePayload = null;       // 서버에서 준 저장 payload
-  window.__mealAnalyzeLast = null;  // 디버깅/후속 저장용
+  let lastSavePayload = null; // 분석 응답의 커밋 페이로드
+  let lastPreviewPhotoUrl = null; // 프리뷰에서 받은 photo_url
 
-  // ---------------------- utils ----------------------
+  // ---------- utils ----------
   const mealTypeClass = (type) => {
     const map = {
       breakfast: 'breakfast', lunch: 'lunch', dinner: 'dinner', snack: 'snack',
@@ -50,12 +49,6 @@
     return Number.isInteger(n) ? `${n}` : n.toFixed(1);
   };
 
-  const fmt1 = (n) => {
-    const x = Number(n ?? 0);
-    if (!Number.isFinite(x)) return 0;
-    return Math.round(x * 10) / 10;
-  };
-
   const getCSRFToken = () => {
     const m = document.cookie.match(/csrftoken=([^;]+)/);
     return m ? decodeURIComponent(m[1]) : '';
@@ -68,11 +61,10 @@
     try { return JSON.stringify(e); } catch { return String(e); }
   }
 
-  function toggleState({ empty = false, preview = false, loading = false, analysis = false }) {
-    emptyState.hidden   = !empty;
+  function toggleState({ empty = false, preview = false, loading = false }) {
+    emptyState.hidden = !empty;
     previewState.hidden = !preview;
     if (loadingState) loadingState.hidden = !loading;
-    if (resultContainer) resultContainer.hidden = !analysis;
   }
 
   function resetAnalysis() {
@@ -85,17 +77,15 @@
       commitButton.hidden = true;
       commitButton.disabled = false;
       commitButton.removeAttribute('data-payload');
-      commitButton.textContent = '저장하기';
     }
     lastSavePayload = null;
+    lastPreviewPhotoUrl = null;
 
-    if (resultTitle)      resultTitle.textContent = '분석 결과';
-    if (resultLabel)      resultLabel.textContent = '';
-    if (resultConfidence) resultConfidence.textContent = '';
+    if (macrosTotalEl)  macrosTotalEl.innerHTML  = '';
+    if (macrosPer100El) macrosPer100El.innerHTML = '';
     if (resultServing)  { resultServing.textContent = ''; resultServing.hidden = true; }
-    if (resultNote)     { resultNote.textContent = '';    resultNote.hidden = true; }
-    if (resultAlt)      { resultAlt.innerHTML = '';       resultAlt.hidden = true; }
-    if (resultMacros)   { resultMacros.innerHTML = '';    resultMacros.hidden = true; }
+    if (resultNote)     { resultNote.textContent = ''; resultNote.hidden = true; }
+    if (resultAlt)      { resultAlt.innerHTML = ''; resultAlt.hidden = true; }
   }
 
   function resetWidget() {
@@ -103,11 +93,11 @@
     previewImage.src = '';
     input.value = '';
     resetAnalysis();
-    toggleState({ empty: true, preview: false, loading: false, analysis: false });
+    toggleState({ empty: true, preview: false, loading: false });
   }
 
   function showPreview(url) {
-    toggleState({ empty: false, preview: true, loading: false, analysis: false });
+    toggleState({ empty: false, preview: true, loading: false });
     previewImage.src = url;
   }
 
@@ -153,9 +143,9 @@
           }
           const card = btn.closest('[data-history-item]') || btn.closest('.meal-history__item');
           if (card) card.remove();
-          const list = document.getElementById('mealHistoryList');
-          if (list && !list.querySelector('[data-history-item], .meal-history__item')) {
-            list.innerHTML = '<p class="meal-history__empty" data-history-empty>오늘 기록된 식사가 아직 없습니다.</p>';
+          const historyList = document.getElementById('mealHistoryList');
+          if (historyList && !historyList.querySelector('[data-history-item], .meal-history__item')) {
+            historyList.innerHTML = '<p class="meal-history__empty" data-history-empty>오늘 기록된 식사가 아직 없습니다.</p>';
           }
           if (data.updated_consumed) updateSummaryGrid(data.updated_consumed);
         } catch (err) {
@@ -166,47 +156,7 @@
     });
   }
 
-  // ---------------------- response normalize ----------------------
-  // data → 항상 items[0]에 {name, macros(per100), macros_total(total), weight_g, source, confidence}
-  function normalizeAnalyzeResponse(data) {
-    if (!data || typeof data !== 'object') return { items: [], meal_type: '간식', can_save: false, save_payload: null };
-
-    const hasSingle = (data.macros && data.macros_total) || (data.macros_per100g && data.macros_total);
-    if (hasSingle) {
-      const item = {
-        name: data.label_ko || data.label || 'item',
-        ai_label: data.label_ko || data.label || 'item',
-        confidence: data.confidence ?? null,
-        weight_g: data.weight_g ?? 100,
-        source: data.source || 'csv',
-        macros: data.macros_per100g || data.macros || { calories: 0, protein: 0, carb: 0, fat: 0 }, // 100g 기준(보조)
-        macros_total: data.macros_total || { calories: 0, protein: 0, carb: 0, fat: 0 },             // 1회 제공량 총합(메인)
-      };
-      return { items: [item], meal_type: data.meal_type, can_save: !!data.can_save, save_payload: data.save_payload || null };
-    }
-
-    if (Array.isArray(data.items)) {
-      return { items: data.items, meal_type: data.meal_type, can_save: !!data.can_save, save_payload: data.save_payload || null };
-    }
-
-    return { items: [], meal_type: data.meal_type, can_save: !!data.can_save, save_payload: data.save_payload || null };
-  }
-
-  function asPer100(macros) {
-    if (macros?.kcal != null) {
-      return { kcal: fmt1(macros.kcal), protein_g: fmt1(macros.protein_g), carb_g: fmt1(macros.carb_g), fat_g: fmt1(macros.fat_g) };
-    }
-    return { kcal: fmt1(macros?.calories), protein_g: fmt1(macros?.protein), carb_g: fmt1(macros?.carb), fat_g: fmt1(macros?.fat) };
-  }
-
-  function asTotal(macrosTotal) {
-    if (macrosTotal?.kcal != null) {
-      return { kcal: fmt1(macrosTotal.kcal), protein_g: fmt1(macrosTotal.protein_g), carb_g: fmt1(macrosTotal.carb_g), fat_g: fmt1(macrosTotal.fat_g) };
-    }
-    return { kcal: fmt1(macrosTotal?.calories), protein_g: fmt1(macrosTotal?.protein), carb_g: fmt1(macrosTotal?.carb), fat_g: fmt1(macrosTotal?.fat) };
-  }
-
-  // ---------------------- commit button helpers ----------------------
+  // ---------- commit button binding ----------
   function ensureCommitButton() {
     if (!commitButton || !document.body.contains(commitButton)) {
       commitButton = widget.querySelector('[data-photo-commit]');
@@ -258,24 +208,32 @@
         card.dataset.historyItem = 'true';
         card.dataset.itemId = String(data.meal_item_id);
 
-        const seg = [];
-        const p = formatNumber(macros.protein); if (p !== '-') seg.push(`<span><strong>${p}g</strong> protein</span>`);
-        const c = formatNumber(macros.carb);    if (c !== '-') seg.push(`<span><strong>${c}g</strong> carbs</span>`);
-        const f = formatNumber(macros.fat);     if (f !== '-') seg.push(`<span><strong>${f}g</strong> fat</span>`);
-        const macrosRow = seg.length ? `<div class="meal-history__macros">${seg.join('')}</div>` : '';
+        const macroSegments = [];
+        const p = formatNumber(macros.protein); if (p !== '-') macroSegments.push(`<span><strong>${p}g</strong> protein</span>`);
+        const c = formatNumber(macros.carb);    if (c !== '-') macroSegments.push(`<span><strong>${c}g</strong> carbs</span>`);
+        const f = formatNumber(macros.fat);     if (f !== '-') macroSegments.push(`<span><strong>${f}g</strong> fat</span>`);
+        const macrosRow = macroSegments.length ? `<div class="meal-history__macros">${macroSegments.join('')}</div>` : '';
 
         const calText = formatNumber(macros.calories);
-        const caloriesHtml = calText !== '-' ? `${calText} cal` : '-';
+        const caloriesHtml = calText !== '-' ? `${caloriesHtmlSafe(calText)} cal` : '-';
+
+        // 서버가 돌려준 사진 URL 우선 → 없으면 프리뷰
+        const serverPhotoUrl = data.photo_url || null;
+        const thumbHtml = serverPhotoUrl
+          ? `<img src="${serverPhotoUrl}" alt="${escapeHtml(lastSavePayload.label_ko || '식사 사진')}">`
+          : (previewImage && previewImage.src
+              ? `<img src="${previewImage.src}" alt="${escapeHtml(lastSavePayload.label_ko || '식사 사진')}">`
+              : '<span class="meal-history__emoji">🥗</span>');
 
         const mealType = lastSavePayload.meal_type || '식사';
         card.innerHTML = `
           <div class="meal-history__thumb" aria-hidden="true">
-            ${previewImage && previewImage.src ? `<img src="${previewImage.src}" alt="${lastSavePayload.label_ko || '식사 사진'}">` : '<span class="meal-history__emoji">🥗</span>'}
+            ${thumbHtml}
           </div>
           <div class="meal-history__info">
             <div class="meal-history__title-row">
-              <strong>${lastSavePayload.label_ko || '분석 식사'}</strong>
-              <span class="badge badge--subtle meal-type--${mealTypeClass(mealType)}">${mealType}</span>
+              <strong>${escapeHtml(lastSavePayload.label_ko || '분석 식사')}</strong>
+              <span class="badge badge--subtle meal-type--${mealTypeClass(mealType)}">${escapeHtml(mealType)}</span>
               <span class="badge badge--ai"><span aria-hidden="true">⚡</span>AI</span>
             </div>
             <span class="meal-history__calories">${caloriesHtml}</span>
@@ -301,115 +259,30 @@
     }
   }
 
-  // ---------------------- render ----------------------
-  function renderAnalyzeResult(rawData) {
-    const norm = normalizeAnalyzeResponse(rawData);
-    const item = norm.items[0];
+  function caloriesHtmlSafe(v) { return String(v); }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
-    // 초기화
-    if (errorBox) { errorBox.hidden = true; errorBox.textContent = ''; }
-    if (commitErrorBox) { commitErrorBox.hidden = true; commitErrorBox.textContent = ''; }
-
-    if (!item) {
-      if (resultTitle) resultTitle.textContent = '분석 결과';
-      if (resultLabel) resultLabel.textContent = '항목을 찾지 못했습니다';
-      if (resultConfidence) resultConfidence.textContent = '';
-      if (resultServing) { resultServing.textContent = ''; resultServing.hidden = true; }
-      if (resultMacros) { resultMacros.innerHTML = ''; resultMacros.hidden = true; }
-      if (resultCard) resultCard.hidden = false;
-      if (resultContainer) resultContainer.hidden = false;
-      return;
-    }
-
-    // 🔴 메인: 총합(1회 제공량), 🔵 보조: 100g
-    const per100 = asPer100(item.macros);         // 100g 기준(보조)
-    const total  = asTotal(item.macros_total);    // 1회 제공량 기준(메인)
-
-    if (resultTitle)      resultTitle.textContent = '분석 결과';
-    if (resultLabel)      resultLabel.textContent = `${item.name || item.ai_label} (${item.source || 'csv'})`;
-    if (resultConfidence) resultConfidence.textContent = (item.confidence != null) ? `${Math.round(item.confidence)}% 신뢰도` : '';
-
-    if (resultServing) {
-      const w = fmt1(item.weight_g ?? 100);
-      resultServing.textContent = `중량: ${w} g 기준`;
-      resultServing.hidden = false;
-    }
-
-    if (resultMacros) {
-      resultMacros.innerHTML = `
-        <div class="macro main">
-          <strong>${total.kcal} kcal</strong>
-          <span>탄 ${total.carb_g}g · 단 ${total.protein_g}g · 지 ${total.fat_g}g</span>
-          <small class="muted">표시: 1회 제공량(총합) 기준</small>
-        </div>
-        <div class="macro sub">
-          <span class="muted">100g 기준: ${per100.kcal} kcal · 탄 ${per100.carb_g}g · 단 ${per100.protein_g}g · 지 ${per100.fat_g}g</span>
-        </div>
-      `;
-      resultMacros.hidden = false;
-    }
-
-    if (Array.isArray(rawData.alternatives) && rawData.alternatives.length) {
-      const items = rawData.alternatives.slice(0, 3).map(a => `<li>${a.label} (${Math.round((a.score || 0) * 100)}%)</li>`).join('');
-      resultAlt.innerHTML = `<h4>다른 후보</h4><ul>${items}</ul>`;
-      resultAlt.hidden = false;
-    } else {
-      resultAlt.innerHTML = '';
-      resultAlt.hidden = true;
-    }
-
-    // 안내 노트
-    if (resultNote) {
-      if (rawData.source === 'default')        { resultNote.textContent = '정확한 매칭을 찾지 못해 기본 열량 정보를 사용했습니다.'; resultNote.hidden = false; }
-      else if (rawData.source === 'csv_estimate'){ resultNote.textContent = 'CSV 평균값(가늠)으로 추정했습니다.'; resultNote.hidden = false; }
-      else if (rawData.source === 'fallback')  { resultNote.textContent = '대표 음식 영양 정보를 사용했습니다.'; resultNote.hidden = false; }
-      else if (rawData.source === 'unmatched') { resultNote.textContent = '일치하는 음식 데이터를 찾지 못했어요.'; resultNote.hidden = false; }
-      else { resultNote.textContent = ''; resultNote.hidden = true; }
-    }
-
-    if (resultContainer) resultContainer.hidden = false;
-    if (resultCard) resultCard.hidden = false;
-
-    // 저장 버튼/페이로드
-    ensureCommitButton();
-    window.__mealAnalyzeLast = rawData;
-    if (commitButton) {
-      if ((rawData.can_save || norm.can_save) && (rawData.save_payload || norm.save_payload)) {
-        lastSavePayload = rawData.save_payload || norm.save_payload;
-        commitButton.hidden = false;
-        commitButton.disabled = false;
-        commitButton.dataset.payload = JSON.stringify(lastSavePayload);
-      } else {
-        // 서버가 save_payload 안 줬다면, 클라에서 총합 기준으로 구성
-        const mt = item.macros_total?.kcal != null
-          ? { calories: item.macros_total.kcal, protein: item.macros_total.protein_g, carb: item.macros_total.carb_g, fat: item.macros_total.fat_g }
-          : { calories: item.macros_total?.calories ?? 0, protein: item.macros_total?.protein ?? 0, carb: item.macros_total?.carb ?? 0, fat: item.macros_total?.fat ?? 0 };
-        lastSavePayload = {
-          label_ko: item.name || item.ai_label || 'item',
-          macros: mt,                                       // ✅ 총합(1회 제공량) 저장
-          meal_type: rawData.meal_type || '간식',
-          source: item.source || 'csv',
-          food_id: null,
-        };
-        commitButton.hidden = !(rawData.can_save || norm.can_save);
-        commitButton.disabled = !(!commitButton.hidden);
-      }
-    }
+  function renderMacrosRow(macros) {
+    const parts = [];
+    const cal = formatNumber(macros.calories); if (cal !== '-') parts.push(`<span><strong>${cal}</strong> cal</span>`);
+    const pro = formatNumber(macros.protein);  if (pro !== '-') parts.push(`<span><strong>${pro}g</strong> protein</span>`);
+    const carb= formatNumber(macros.carb);     if (carb !== '-') parts.push(`<span><strong>${carb}g</strong> carbs</span>`);
+    const fat = formatNumber(macros.fat);      if (fat !== '-') parts.push(`<span><strong>${fat}g</strong> fat</span>`);
+    return parts.join('');
   }
 
-  // ---------------------- analyze ----------------------
+  // ---------- 분석 호출 ----------
   async function analyzeImage(file) {
     if (!file) return;
     resetAnalysis();
-    toggleState({ empty: false, preview: true, loading: true, analysis: false });
+    toggleState({ empty: false, preview: true, loading: true });
 
     const formData = new FormData();
     formData.append('image', file, file.name);
-    formData.append('commit', 'preview'); // 프리뷰 모드
+    formData.append('commit', 'preview');
 
-    let res, data, raw;
     try {
-      res = await fetch('/api/ai/meal-analyze/', {
+      const res = await fetch('/api/ai/meal-analyze/', {
         method: 'POST',
         headers: {
           'X-CSRFToken': getCSRFToken(),
@@ -419,35 +292,92 @@
         credentials: 'same-origin',
       });
 
-      raw = await res.text();
+      const raw = await res.text();
+      let data;
       try { data = JSON.parse(raw); } catch { data = { error: raw.slice(0, 500) }; }
-    } catch (e) {
-      if (errorBox) { errorBox.textContent = '네트워크 오류입니다.'; errorBox.hidden = false; }
-      toggleState({ empty: false, preview: true, loading: false, analysis: false });
-      return;
-    }
 
-    if (!res.ok || data.error) {
+      if (!res.ok) {
+        let msg = data.error || data.detail || `이미지를 분석하지 못했습니다. (HTTP ${res.status})`;
+        if (typeof msg === 'object') { try { msg = JSON.stringify(msg); } catch {} }
+        throw new Error(msg);
+      }
+
+      if (resultTitle) resultTitle.textContent = data.label_ko || data.label || '분석 결과';
+      if (resultLabel) resultLabel.textContent = data.label ? `(${data.label})` : '';
+      if (resultConfidence) resultConfidence.textContent = (data.confidence != null) ? `${data.confidence}% 신뢰도` : '';
+
+      // 프리뷰 url(서버 저장본)이 있으면 프리뷰 이미지 대체
+      lastPreviewPhotoUrl = data.photo_url || null;
+      if (lastPreviewPhotoUrl) {
+        previewImage.src = lastPreviewPhotoUrl;
+      }
+
+      const per100 = data.macros_per100g || data.macros || {};
+      const total  = data.macros_total   || {};
+      if (resultServing) {
+        const w = data.weight_g;
+        if (w) { resultServing.textContent = `기준량: ${formatNumber(w)} g`; resultServing.hidden = false; }
+        else   { resultServing.textContent = ''; resultServing.hidden = true; }
+      }
+      if (macrosTotalEl)  macrosTotalEl.innerHTML  = renderMacrosRow(total);
+      if (macrosPer100El) macrosPer100El.innerHTML = renderMacrosRow(per100);
+
+      if (resultNote) {
+        if (data.source === 'default')       { resultNote.textContent = '정확한 매칭을 찾지 못해 기본 열량 정보를 사용했습니다.'; resultNote.hidden = false; }
+        else if (data.source === 'csv_estimate') { resultNote.textContent = 'CSV 평균값(가늠)으로 추정했습니다.'; resultNote.hidden = false; }
+        else if (data.source === 'fallback') { resultNote.textContent = '대표 음식 영양 정보를 사용했습니다.'; resultNote.hidden = false; }
+        else if (data.source === 'unmatched'){ resultNote.textContent = '일치하는 음식 데이터를 찾지 못했어요.'; resultNote.hidden = false; }
+        else { resultNote.textContent = ''; resultNote.hidden = true; }
+      }
+
+      if (resultAlt) {
+        const alt = Array.isArray(data.alternatives) ? data.alternatives : [];
+        if (alt.length) {
+          const items = alt.slice(0, 3).map(it => `<li>${escapeHtml(it.label)} (${Math.round((it.score || 0) * 100)}%)</li>`).join('');
+          resultAlt.innerHTML = `<h4>다른 후보</h4><ul>${items}</ul>`;
+          resultAlt.hidden = false;
+        } else {
+          resultAlt.innerHTML = '';
+          resultAlt.hidden = true;
+        }
+      }
+
+      if (resultContainer) resultContainer.hidden = false;
+      if (resultCard) resultCard.hidden = false;
+
+      console.log('[meals] analyze ok:', {
+        can_save: data.can_save, has_payload: !!data.save_payload, meal_type: data.meal_type
+      });
+      window.__mealAnalyzeLast = data;
+
+      ensureCommitButton();
+      if (commitButton) {
+        if (data.can_save && data.save_payload) {
+          lastSavePayload = data.save_payload;
+          commitButton.hidden = false;
+          commitButton.disabled = false;
+          commitButton.dataset.payload = JSON.stringify(lastSavePayload);
+        } else {
+          lastSavePayload = null;
+          commitButton.hidden = true;
+        }
+      }
+
+      if (data.saved && data.updated_consumed) {
+        updateSummaryGrid(data.updated_consumed);
+      }
+    } catch (error) {
+      console.error('[meals] analyze error:', error);
       if (errorBox) {
-        errorBox.textContent = data.error || data.detail || `이미지를 분석하지 못했습니다. (HTTP ${res.status})`;
+        errorBox.textContent = stringifyErr(error) || '이미지를 분석하지 못했습니다.';
         errorBox.hidden = false;
       }
-      toggleState({ empty: false, preview: true, loading: false, analysis: false });
-      return;
-    }
-
-    console.log('[meals] analyze ok (full):', data);
-
-    renderAnalyzeResult(data);
-    toggleState({ empty: false, preview: true, loading: false, analysis: true });
-
-    // 서버가 즉시 저장(safe/passed)한 경우 현황 갱신
-    if (data.saved && data.updated_consumed) {
-      updateSummaryGrid(data.updated_consumed);
+    } finally {
+      toggleState({ empty: false, preview: true, loading: false });
     }
   }
 
-  // ---------------------- file handlers ----------------------
+  // ---------- 파일 선택 / 드롭 ----------
   input.addEventListener('change', (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || !target.files || !target.files[0]) return;
@@ -478,7 +408,7 @@
 
   if (resetButton) resetButton.addEventListener('click', resetWidget);
 
-  // ---------------------- commit binding & history delete ----------------------
+  // ---------- 초기 바인딩 & 위임 ----------
   bindCommitClick();
   widget.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-photo-commit]');

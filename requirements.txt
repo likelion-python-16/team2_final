@@ -12,3 +12,4 @@ rapidfuzz>=3.9.0
 drf-spectacular
 drf-spectacular-sidecar
 requests>=2.32
+Pillow

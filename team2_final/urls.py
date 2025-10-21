@@ -28,6 +28,7 @@ from .auth_views import (
 from users import urls as users_urls
 from users import views as users_views
 from tasks import urls as tasks_urls
+from team2_final.today_views import today_summary
 
 
 # ---------- 유틸성 뷰 ----------
@@ -94,6 +95,7 @@ urlpatterns = [
     path("api/", include("intakes.urls")),
     path("api/", include("feedbacks.urls")),
     path("api/ai/", include("ai.urls")),
+    path("api/today/summary/", today_summary, name="today-summary"),
 
     # ---------- 페이지 라우트 ----------
     path("users/", include((users_urls.page_urlpatterns, "users"), namespace="users")),

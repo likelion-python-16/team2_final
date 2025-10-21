@@ -98,16 +98,28 @@
             </header>
             <p class="meal-photo__confidence" id="mealAnalysisConfidence"></p>
             <p class="meal-photo__serving muted" id="mealAnalysisServing" hidden></p>
-            <div class="meal-history__macros meal-analysis__macros" id="mealAnalysisMacros"></div>
+
+            <!-- 100g 기준 / 총합 표시 -->
+            <div class="meal-analysis__macros-wrap">
+              <div class="meal-analysis__row">
+                <strong>총합(1회 제공량):</strong>
+                <div class="meal-history__macros" id="mealAnalysisMacrosTotal"></div>
+              </div>
+              <div class="meal-analysis__row">
+                <span class="muted">100g 기준(참고):</span>
+                <div class="meal-history__macros" id="mealAnalysisMacrosPer100"></div>
+              </div>
+            </div>
+
             <p class="meal-photo__note" id="mealAnalysisNote" hidden></p>
             <div class="meal-photo__alternatives" id="mealAnalysisAlternatives" hidden></div>
 
-            <!-- ✅ 저장 버튼 (JS와 셀렉터 일치: data-photo-commit) -->
+            <!-- 저장 버튼 -->
             <div class="meal-photo__actions">
               <button type="button" class="btn btn--primary" data-photo-commit hidden>저장하기</button>
             </div>
 
-            <!-- 커밋 에러 메시지 -->
+            <!-- 커밋 에러 -->
             <div class="ai-feedback-card ai-feedback-card--suggestion" id="mealCommitError" hidden></div>
           </article>
         </div>
@@ -131,13 +143,19 @@
           {% for item in meal_history %}
             <article class="meal-history__item" data-history-item data-item-id="{{ item.id }}">
               <div class="meal-history__thumb" aria-hidden="true">
-                <span class="meal-history__emoji">🥗</span>
+                {% if item.photo_url %}
+                  <img src="{{ item.photo_url }}" alt="{{ item.name|default:'식사 사진' }}">
+                {% else %}
+                  <span class="meal-history__emoji">🥗</span>
+                {% endif %}
               </div>
               <div class="meal-history__info">
                 <div class="meal-history__title-row">
                   <strong>{{ item.name }}</strong>
                   <span class="badge badge--subtle meal-type--{{ item.type_class }}">{{ item.meal_type }}</span>
-                  {% if item.source == 'AI' %}<span class="badge badge--ai"><span aria-hidden="true">⚡</span>AI</span>{% endif %}
+                  {% if item.source == 'AI' %}
+                    <span class="badge badge--ai"><span aria-hidden="true">⚡</span>AI</span>
+                  {% endif %}
                 </div>
                 <span class="meal-history__calories">{{ item.calories|floatformat:0 }} cal</span>
               </div>
@@ -189,7 +207,6 @@
           {% endif %}
         {% endfor %}
 
-        <!-- 결과 카드 / 에러 -->
         <div class="ai-recommendation-card ai-recommendation-card--result" id="dinnerRecipeOutput" hidden>
           <h3 id="dinnerRecipeTitle"></h3>
           <p class="muted" id="dinnerRecipeMacros"></p>
@@ -229,5 +246,5 @@
 
 {% block extra_js %}
   {{ block.super }}
-  <script src="{% static 'js/meals.js' %}?v=5"></script>
+  <script src="{% static 'js/meals.js' %}?v=5.3-fix"></script>
 {% endblock %}

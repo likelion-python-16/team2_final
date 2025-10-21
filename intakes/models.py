@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from django.utils import timezone
 
 
 class Food(models.Model):
@@ -50,6 +51,13 @@ class MealItem(models.Model):
     protein_g = models.FloatField(null=True, blank=True, verbose_name="단백질(g)")
     carb_g = models.FloatField(null=True, blank=True, verbose_name="탄수화물(g)")
     fat_g = models.FloatField(null=True, blank=True, verbose_name="지방(g)")
+    photo = models.ImageField(upload_to="meals/%Y/%m/%d/", null=True, blank=True)
+    serving_g = models.FloatField(null=True, blank=True)
+    source = models.CharField(max_length=20, default='csv')  # 'db'|'csv'|'csv_estimate'|'default'
+    ai_label = models.CharField(max_length=200, null=True, blank=True)
+    ai_confidence = models.FloatField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         base = self.food.name if self.food else (self.name or "항목")

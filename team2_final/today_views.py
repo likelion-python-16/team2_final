@@ -1,18 +1,41 @@
+# team2_final/today_views.py
+from __future__ import annotations
+
 from datetime import date
+from typing import Dict, Any, Optional
+
 from django.db.models import Sum, Q
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 
+def _round1(v: Any) -> float:
+    """숫자를 소수 1자리로 반올림. None/NaN 안전 처리."""
+    try:
+        x = float(v or 0.0)
+    except Exception:
+        return 0.0
+    # NaN/inf 방어
+    if x != x or x in (float("inf"), float("-inf")):
+        return 0.0
+    return round(x, 1)
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def today_summary(request):
+    """
+    오늘 요약:
+      - dailygoal: DailyGoal(있으면) 목표/실적/점수
+      - nutrition: NutritionLog 합계(kcal_total, protein_total_g, carb_total_g, fat_total_g)
+      - tasks: 오늘의 운동 태스크 목록
+    """
     user = request.user
     today = date.today()
 
     # ---- DailyGoal ----
-    dailygoal = None
+    dailygoal: Optional[Dict[str, Any]] = None
     try:
         from goals.models import DailyGoal
         dg = DailyGoal.objects.filter(user=user, date=today).first()
@@ -24,19 +47,19 @@ def today_summary(request):
 
             dailygoal = {
                 "date": today.isoformat(),
-                "kcal_target": getattr(dg, "kcal_target", 0) or 0,
-                "protein_target_g": getattr(dg, "protein_target_g", 0) or 0,
-                "workout_minutes_target": getattr(dg, "workout_minutes_target", 0) or 0,
-                "kcal_actual": getattr(dg, "kcal_actual", 0) or 0,
-                "protein_actual_g": getattr(dg, "protein_actual_g", 0) or 0,
-                "workout_minutes_actual": getattr(dg, "workout_minutes_actual", 0) or 0,
-                "score": score_val,
+                "kcal_target": _round1(getattr(dg, "kcal_target", 0)),
+                "protein_target_g": _round1(getattr(dg, "protein_target_g", 0)),
+                "workout_minutes_target": _round1(getattr(dg, "workout_minutes_target", 0)),
+                "kcal_actual": _round1(getattr(dg, "kcal_actual", 0)),
+                "protein_actual_g": _round1(getattr(dg, "protein_actual_g", 0)),
+                "workout_minutes_actual": _round1(getattr(dg, "workout_minutes_actual", 0)),
+                "score": _round1(score_val),
             }
     except Exception:
         dailygoal = None
 
     # ---- NutritionLog 합계 (필드명: date / *_total) ----
-    nutrition = {"date": today.isoformat(), "kcal": 0, "protein_g": 0, "fat_g": 0, "carb_g": 0}
+    nutrition = {"date": today.isoformat(), "kcal": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carb_g": 0.0}
     try:
         from intakes.models import NutritionLog
         agg = (
@@ -50,15 +73,16 @@ def today_summary(request):
             )
         )
         nutrition.update({
-            "kcal": agg.get("kcal") or 0,
-            "protein_g": agg.get("protein") or 0,
-            "fat_g": agg.get("fat") or 0,
-            "carb_g": agg.get("carbs") or 0,
+            "kcal": _round1(agg.get("kcal")),
+            "protein_g": _round1(agg.get("protein")),
+            "fat_g": _round1(agg.get("fat")),
+            "carb_g": _round1(agg.get("carbs")),
         })
     except Exception:
+        # 모델이 없거나 마이그레이션 전이라면 0으로 유지
         pass
 
-    # ---- Tasks ----
+    # ---- Tasks (오늘 due 또는 due 없음) ----
     tasks = []
     try:
         from tasks.models import TaskItem
@@ -76,8 +100,8 @@ def today_summary(request):
                 "exercise_name": getattr(exercise, "name", None) if exercise else None,
                 "duration_min": getattr(t, "duration_min", None),
                 "order": getattr(t, "order", None),
-                "completed": getattr(t, "completed", False),
-                "skipped": getattr(t, "skipped", False),
+                "completed": bool(getattr(t, "completed", False)),
+                "skipped": bool(getattr(t, "skipped", False)),
             })
     except Exception:
         tasks = []

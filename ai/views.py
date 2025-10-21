@@ -24,8 +24,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.response import Response
 
+# ✅ 사진 선저장 관련
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
+from uuid import uuid4
+from django.utils.timezone import now
+
 from intakes.models import Food, Meal, MealItem, NutritionLog
-from ai.utils import match_csv_entry, estimate_macros_from_csv  # CSV 가늠값(100g 기준 평균)
+from ai.utils import match_csv_entry, estimate_macros_from_csv  # CSV 매칭/가늠값
 
 # ==============================================
 # Hugging Face helpers
@@ -299,6 +305,21 @@ def _pick_image_file(request):
 
 
 # ==============================================
+# 사진 선저장 도우미
+# ==============================================
+def _save_upload_and_get_paths(image_bytes: bytes, ext_hint: str = "jpg") -> Dict[str, str]:
+    """업로드 이미지를 media에 저장하고 {'name': FileField name, 'url': URL} 반환."""
+    dt = now()
+    subdir = f"meals/{dt:%Y/%m/%d}"
+    ext = (ext_hint or "jpg").lower().replace(".", "")
+    fname = f"{uuid4().hex}.{ext}"
+    path = f"{subdir}/{fname}"  # FileField name으로 사용
+    saved_path = default_storage.save(path, ContentFile(image_bytes))
+    url = default_storage.url(saved_path)
+    return {"name": saved_path, "url": url}
+
+
+# ==============================================
 # Food 매칭 보강
 # ==============================================
 def _find_food_by_label(raw_label: str) -> Optional[Food]:
@@ -392,6 +413,20 @@ class AIViewSet(viewsets.ViewSet):
                 raise ValueError("empty file")
         except Exception:
             return Response({"error": "이미지 파일을 읽을 수 없습니다."}, status=400)
+
+        # 확장자 힌트
+        ext_hint = "jpg"
+        try:
+            n = (getattr(file_obj, "name", "") or "").lower()
+            if n.rsplit(".", 1)[-1] in ("jpg", "jpeg", "png", "webp", "heic"):
+                ext_hint = n.rsplit(".", 1)[-1]
+        except Exception:
+            pass
+
+        # ✅ 업로드 이미지 선 저장
+        photo_info = _save_upload_and_get_paths(image_bytes, ext_hint=ext_hint)
+        photo_name = photo_info["name"]
+        photo_url = photo_info["url"]
 
         # 2) HF 추론
         try:
@@ -506,8 +541,9 @@ class AIViewSet(viewsets.ViewSet):
                         "meal_type": meal_type,
                         "source": source,
                         "food_id": getattr(found_food, "id", None),
+                        "photo_name": photo_name,          # ✅ 커밋 연결용
                     }
-                elif allow_fallback_below and not matched:   # ✅ 매칭 실패시에만 폴백/가늠값 적용
+                elif allow_fallback_below and not matched:
                     # 임계 미달 허용 → CSV 가늠값(100g 평균) 사용, 총합은 weight_g 비례 환산
                     est = estimate_macros_from_csv(label_ko or top_label) if (label_ko or top_label) else None
                     if est and (est.get("calories", 0) or 0) > 0:
@@ -533,6 +569,7 @@ class AIViewSet(viewsets.ViewSet):
                             "meal_type": meal_type,
                             "source": source,
                             "food_id": None,
+                            "photo_name": photo_name,      # ✅
                         }
                     else:
                         can_save = True
@@ -545,6 +582,7 @@ class AIViewSet(viewsets.ViewSet):
                             "meal_type": meal_type,
                             "source": source,
                             "food_id": None,
+                            "photo_name": photo_name,      # ✅
                         }
 
             return Response(
@@ -559,12 +597,13 @@ class AIViewSet(viewsets.ViewSet):
                     "macros_per100g": per100g or {},   # 100g 기준 명시
                     "macros_total": macros_total or {},# ✅ 1회 제공량 총합(메인)
                     "weight_g": float(weight_g or 100.0),
+                    "photo_url": photo_url,            # ✅ 프리뷰에 표시
                     # ---------------
                     "alternatives": alternatives,
                     "meal_type": meal_type,
                     "can_save": can_save,
                     "has_payload": bool(save_payload),
-                    "save_payload": save_payload,      # ✅ 저장은 총합 기준만 전달
+                    "save_payload": save_payload,      # ✅ 저장은 총합 기준 + photo_name
                     # 🔎 디버그
                     "debug": {
                         "is_auth": bool(request.user.is_authenticated),
@@ -602,6 +641,7 @@ class AIViewSet(viewsets.ViewSet):
                     protein_g=macros_total["protein"],
                     carb_g=macros_total["carb"],
                     fat_g=macros_total["fat"],
+                    photo=photo_name,  # ✅ 자동 저장에도 사진 연결
                 )
                 log, _ = NutritionLog.objects.get_or_create(user=request.user, date=today)
                 try:
@@ -629,6 +669,7 @@ class AIViewSet(viewsets.ViewSet):
                     "macros_per100g": per100g,
                     "macros_total": macros_total,       # 총합(1회 제공량, 메인)
                     "weight_g": float(weight_g or 100.0),
+                    "photo_url": default_storage.url(photo_name),  # ✅
                     # ---------------
                     "alternatives": alternatives,
                     "meal_type": meal_type,
@@ -668,7 +709,8 @@ class AIViewSet(viewsets.ViewSet):
           "macros": {"calories": 350, "protein": 20, "carb": 25, "fat": 15},  # ✅ 총합(1회 제공량) 기준만 전달됨
           "meal_type": "아침|점심|저녁|간식",
           "source": "db|csv|csv_estimate|default",
-          "food_id": 123  # 선택
+          "food_id": 123,
+          "photo_name": "meals/2025/01/01/xxx.jpg"  # ✅ 분석 단계에서 선저장한 파일 경로
         }
         """
         data = request.data
@@ -677,6 +719,7 @@ class AIViewSet(viewsets.ViewSet):
         meal_type = (data.get("meal_type") or "").strip() or "간식"
         source = (data.get("source") or "").strip() or "csv"
         food_id = data.get("food_id")
+        photo_name = (data.get("photo_name") or "").strip() or None
 
         macros = data.get("macros") or {}
         try:
@@ -714,7 +757,16 @@ class AIViewSet(viewsets.ViewSet):
                     protein_g=protein,
                     carb_g=carb,
                     fat_g=fat,
+                    source=source,
                 )
+                # ✅ 사진 연결
+                if photo_name:
+                    try:
+                        meal_item.photo.name = photo_name
+                        meal_item.save(update_fields=["photo"])
+                    except Exception:
+                        pass
+
                 log, _ = NutritionLog.objects.get_or_create(user=request.user, date=today)
                 try:
                     log.recalc()
@@ -735,6 +787,7 @@ class AIViewSet(viewsets.ViewSet):
                     "source": source,
                     "meal_item_id": meal_item.id,
                     "updated_consumed": updated_consumed,
+                    "photo_url": (default_storage.url(photo_name) if photo_name else None),  # ✅
                 },
                 status=200,
             )

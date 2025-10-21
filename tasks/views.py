@@ -7,6 +7,7 @@ import json
 from typing import Optional
 
 from django.contrib.auth.decorators import login_required
+from django.core.files.storage import default_storage
 from django.core.exceptions import FieldError
 from django.db import transaction
 from django.db.models import Sum, Q
@@ -813,39 +814,41 @@ def dashboard(request):
     # 2) 식단 합계 (NutritionLog 우선, 없으면 MealItem 대안)
     if HAS_INTAKE_MODELS:
         try:
+            # ✅ NutritionLog의 합계 필드명 사용
             agg = (
                 NutritionLog.objects
-                .filter(user=request.user, log_date=today)
+                .filter(user=request.user, date=today)
                 .aggregate(
-                    cal=Sum("calories"),
-                    pro=Sum("protein_g"),
-                    carb=Sum("carbs_g"),
-                    fat=Sum("fat_g"),
+                    kcal=Sum("kcal_total"),
+                    protein=Sum("protein_total_g"),
+                    carb=Sum("carb_total_g"),
+                    fat=Sum("fat_total_g"),
                 )
             )
             today_totals["meals"] = {
-                "calories": int(agg["cal"]  or 0),
-                "protein":  int(agg["pro"]  or 0),
+                "calories": int(agg["kcal"] or 0),
+                "protein":  int(agg["protein"] or 0),
                 "carbs":    int(agg["carb"] or 0),
-                "fat":      int(agg["fat"]  or 0),
+                "fat":      int(agg["fat"] or 0),
             }
         except Exception:
+            # ✅ MealItem 폴백(필드명: kcal/protein_g/carb_g/fat_g)
             try:
                 agg = (
                     MealItem.objects
                     .filter(meal__user=request.user, meal__log_date=today)
                     .aggregate(
-                        cal=Sum("calories"),
-                        pro=Sum("protein_g"),
-                        carb=Sum("carbs_g"),
+                        kcal=Sum("kcal"),
+                        protein=Sum("protein_g"),
+                        carb=Sum("carb_g"),
                         fat=Sum("fat_g"),
                     )
                 )
                 today_totals["meals"] = {
-                    "calories": int(agg["cal"]  or 0),
-                    "protein":  int(agg["pro"]  or 0),
+                    "calories": int(agg["kcal"] or 0),
+                    "protein":  int(agg["protein"] or 0),
                     "carbs":    int(agg["carb"] or 0),
-                    "fat":      int(agg["fat"]  or 0),
+                    "fat":      int(agg["fat"] or 0),
                 }
             except Exception:
                 pass
@@ -941,42 +944,52 @@ def meals(request):
                 "carbs":    float(getattr(log, "carb_total_g", 0)),
                 "fat":      float(getattr(log, "fat_total_g", 0)),
             }
+            # 상세 히스토리: NutritionLog만으로는 아이템 목록이 없으니 아래 MealItem로 보강
+            items = MealItem.objects.filter(meal__user=request.user, meal__log_date=today).order_by("-id")
         else:
+            items = MealItem.objects.filter(meal__user=request.user, meal__log_date=today).order_by("-id")
+            def _nut(i, k): return i.resolved_nutrients().get(k, 0)
+            consumed = {
+                "calories": sum(_nut(i, "kcal") for i in items),
+                "protein":  sum(_nut(i, "protein_g") for i in items),
+                "carbs":    sum(_nut(i, "carb_g") for i in items),
+                "fat":      sum(_nut(i, "fat_g") for i in items),
+            }
+
+        # 상세 히스토리
+        type_class_map = {
+            "아침": "breakfast", "점심": "lunch", "저녁": "dinner", "간식": "snack",
+            "breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner", "snack": "snack",
+        }
+        for item in items:
+            n = item.resolved_nutrients()
+            # ✅ 사진 URL
+            photo_url = None
             try:
-                items = MealItem.objects.filter(meal__user=request.user, meal__log_date=today)
-                def _nut(i, k): return i.resolved_nutrients().get(k, 0)
-                consumed = {
-                    "calories": sum(_nut(i, "kcal") for i in items),
-                    "protein":  sum(_nut(i, "protein_g") for i in items),
-                    "carbs":    sum(_nut(i, "carb_g") for i in items),
-                    "fat":      sum(_nut(i, "fat_g") for i in items),
-                }
-                # 상세 히스토리
-                type_class_map = {
-                    "아침": "breakfast", "점심": "lunch", "저녁": "dinner", "간식": "snack",
-                    "breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner", "snack": "snack",
-                }
-                for item in items.order_by("-id"):
-                    n = item.resolved_nutrients()
-                    meal_history.append(
-                        {
-                            "meal_type": item.meal.meal_type,
-                            "name": item.name or (item.food.name if item.food else "기록된 식사"),
-                            "calories": round(n.get("kcal", 0), 1),
-                            "protein": round(n.get("protein_g", 0), 1),
-                            "carbs": round(n.get("carb_g", 0), 1),
-                            "fat": round(n.get("fat_g", 0), 1),
-                            "source": "AI",
-                            "type_class": type_class_map.get(item.meal.meal_type, "default"),
-                        }
-                    )
+                if getattr(item, "photo", None) and item.photo:
+                    photo_url = default_storage.url(item.photo.name)
             except Exception:
-                pass
+                photo_url = None
+
+            meal_history.append(
+                {
+                    "id": item.id,
+                    "meal_type": item.meal.meal_type,
+                    "name": item.name or (item.food.name if item.food else "기록된 식사"),
+                    "calories": round(n.get("kcal", 0) or 0, 1),
+                    "protein": round(n.get("protein_g", 0) or 0, 1),
+                    "carbs": round(n.get("carb_g", 0) or 0, 1),
+                    "fat": round(n.get("fat_g", 0) or 0, 1),
+                    "source": "AI",
+                    "type_class": type_class_map.get(item.meal.meal_type, "default"),
+                    "photo_url": photo_url,
+                }
+            )
 
     def pct(cur, goal):
         return min(int(round(cur / goal * 100)) if goal else 0, 100)
 
-    consumed = {k: round(v, 1) for k, v in consumed.items()}
+    consumed = {k: round(v or 0, 1) for k, v in consumed.items()}
 
     nutrition_summary = [
         {"label": "칼로리", "current": consumed["calories"], "goal": nutrition_goals["calories"], "color": "primary",   "unit": "kcal", "progress": pct(consumed["calories"], nutrition_goals["calories"])},
