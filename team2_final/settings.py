@@ -8,49 +8,74 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
+
+- DB 우선순위: DATABASE_URL > DB_* > POSTGRES_* > sqlite
+- 도커 기본 호스트는 'db', DOCKER_LOCAL=1이면 host.docker.internal
 """
 
 import os
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 0) 환경 준비: .env는 "로컬 개발" 편의용으로만 읽기 (배포/CI는 환경변수로 주입)
+# 기본 경로 / .env 로드
 # ─────────────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(dotenv_path=BASE_DIR / ".env")  # 있으면 읽고, 없으면 무시
 
-# 런타임 컨텍스트
-DJANGO_ENV = os.environ.get("DJANGO_ENV", "local").lower()  # local | ci | prod
-IN_DOCKER = os.getenv("IN_DOCKER") == "1"
-DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
+ENV_PATH = BASE_DIR / ".env"
+if ENV_PATH.exists():
+    # 로컬 개발 편의를 위해 override=True (배포에서는 OS env가 우선이 되도록 False도 가능)
+    load_dotenv(ENV_PATH, override=True)
+else:
+    print(f"[dotenv] .env not found at {ENV_PATH}")
+
+# .env 주입 실패 케이스를 대비해 파일을 직접 파싱해 병합하는 헬퍼
+_ENV_FILE_VARS = {}
+try:
+    _ENV_FILE_VARS = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+except Exception as _e:
+    print("[dotenv] parse error:", _e)
+
+
+def env_get(key: str, default=None):
+    """OS 환경변수 → .env 파일 값 → 기본값 순으로 조회"""
+    v = os.getenv(key)
+    if v not in (None, ""):
+        return v
+    v = _ENV_FILE_VARS.get(key)
+    if v not in (None, ""):
+        return v
+    return default
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 1) SECRET_KEY: 배포/CI에서는 반드시 환경변수로 주입. 로컬만 .env 허용
+# 0) 환경 준비
 # ─────────────────────────────────────────────────────────────────────────────
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", None)
+DJANGO_ENV = env_get("DJANGO_ENV", "local").lower()
+IN_DOCKER = env_get("IN_DOCKER") == "1"
 
+DEBUG = env_get("DJANGO_DEBUG", "False").lower() == "true"
+PROM_ENABLED = env_get("DJANGO_PROM_ENABLED", "True").lower() == "true"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1) SECRET_KEY
+# ─────────────────────────────────────────────────────────────────────────────
+SECRET_KEY = env_get("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
-    if DJANGO_ENV in {"local"} and DEBUG:
-        # 로컬 개발만 편의 허용(커밋 금지된 .env에서 로드됨)
-        SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
+    if DJANGO_ENV == "local" and DEBUG:
+        SECRET_KEY = "dev-insecure-secret-key"
     else:
-        # 배포/CI 방어: 키가 없으면 즉시 실패
-        raise RuntimeError(
-            "DJANGO_SECRET_KEY가 설정되지 않았습니다. (배포/CI는 환경변수 필수)"
-        )
+        raise RuntimeError("DJANGO_SECRET_KEY가 설정되지 않았습니다. (배포/CI는 필수)")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2) 기본 보안 플래그
 # ─────────────────────────────────────────────────────────────────────────────
-# 로컬 개발 기본 도메인 (OAuth 콜백 포함) — 콘솔 등록값과 '완전 동일'해야 함
-SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
+SITE_URL = env_get("SITE_URL", "http://127.0.0.1:8000")
 
-# HTTPS/쿠키 보안
 if DEBUG and DJANGO_ENV == "local" and not IN_DOCKER:
-    # 로컬 개발 편의
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
     SESSION_COOKIE_SAMESITE = "Lax"
@@ -59,30 +84,28 @@ if DEBUG and DJANGO_ENV == "local" and not IN_DOCKER:
     SECURE_PROXY_SSL_HEADER = None
     USE_X_FORWARDED_HOST = False
 else:
-    # 배포/CI 기본 보안
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SAMESITE = "Lax"
     CSRF_COOKIE_SAMESITE = "Lax"
-    # 프록시/로드밸런서 뒤라면 적절히 켜기 (예: Nginx/ALB 사용 시)
-    SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() == "true"
+    SECURE_SSL_REDIRECT = env_get("SECURE_SSL_REDIRECT", "False").lower() == "true"
     SECURE_PROXY_SSL_HEADER = (
         ("HTTP_X_FORWARDED_PROTO", "https")
-        if os.getenv("USE_X_FORWARDED_PROTO", "False").lower() == "true"
+        if env_get("USE_X_FORWARDED_PROTO", "False").lower() == "true"
         else None
     )
-    USE_X_FORWARDED_HOST = os.getenv("USE_X_FORWARDED_HOST", "False").lower() == "true"
+    USE_X_FORWARDED_HOST = env_get("USE_X_FORWARDED_HOST", "False").lower() == "true"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3) ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS
 # ─────────────────────────────────────────────────────────────────────────────
-_env_hosts = os.getenv("DJANGO_ALLOWED_HOSTS", "")
+_env_hosts = env_get("DJANGO_ALLOWED_HOSTS", "")
 if _env_hosts:
     ALLOWED_HOSTS = [h.strip() for h in _env_hosts.split(",") if h.strip()]
 else:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
-CSRF_TRUSTED_ORIGINS = []
+CSRF_TRUSTED_ORIGINS: list[str] = []
 
 
 def _add_csrf_origins(host: str):
@@ -98,27 +121,28 @@ def _add_csrf_origins(host: str):
     )
 
 
-for h in ALLOWED_HOSTS:
-    if h:
-        _add_csrf_origins(h)
+for _h in ALLOWED_HOSTS:
+    if _h:
+        _add_csrf_origins(_h)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4) (그 외) 프로젝트 상수/토큰들 — 환경변수에서 읽기
+# 4) 외부 토큰/상수
 # ─────────────────────────────────────────────────────────────────────────────
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_IMAGE_MODEL = os.getenv("HF_IMAGE_MODEL")
-HF_TEXT_MODEL = os.getenv("HF_TEXT_MODEL")
+HF_TOKEN = env_get("HF_TOKEN")
+HF_IMAGE_MODEL = env_get("HF_IMAGE_MODEL")
+HF_TEXT_MODEL = env_get("HF_TEXT_MODEL")
 
-# MFDS CSV
 MFDS_FOOD_CSV = BASE_DIR / "intakes" / "data" / "mfds_foods.csv"
-MEAL_MATCH_THRESHOLD = float(os.getenv("MEAL_MATCH_THRESHOLD", "70.0"))
+MEAL_MATCH_THRESHOLD = float(env_get("MEAL_MATCH_THRESHOLD", "70.0"))
 ALLOW_FALLBACK_SAVE_BELOW = (
-    os.getenv("ALLOW_FALLBACK_SAVE_BELOW", "True").lower() == "true"
+    env_get("ALLOW_FALLBACK_SAVE_BELOW", "True").lower() == "true"
 )
-DEFAULT_FALLBACK_KCAL = float(os.getenv("DEFAULT_FALLBACK_KCAL", "300.0"))
+DEFAULT_FALLBACK_KCAL = float(env_get("DEFAULT_FALLBACK_KCAL", "300.0"))
 MFDS_CSV_PATH = MFDS_FOOD_CSV
 
-# Application definition
+# ─────────────────────────────────────────────────────────────────────────────
+# 5) 앱 설정
+# ─────────────────────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -143,13 +167,19 @@ INSTALLED_APPS = [
     "ai",
 ]
 
-# DRF 설정
+if PROM_ENABLED:
+    try:
+        import django_prometheus  # noqa: F401
+
+        INSTALLED_APPS.append("django_prometheus")
+    except Exception:
+        PROM_ENABLED = False  # 모듈 없으면 자동 비활성화
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
-    # 기본: GET은 익명 허용, POST/PUT/DELETE는 인증 필요
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
@@ -158,20 +188,17 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
-        "rest_framework.renderers.BrowsableAPIRenderer",  # 개발 편의용
+        "rest_framework.renderers.BrowsableAPIRenderer",
     ],
     "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
-# JWT 설정
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=365 * 10),  # 10년
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=365 * 20),  # 20년
-    # 'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    # 'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False,  # 블랙리스트 안 쓰므로 False
-    "BLACKLIST_AFTER_ROTATION": False,  # 블랙리스트 안 쓰므로 False
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=365 * 10),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=365 * 20),
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
@@ -192,6 +219,13 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+if PROM_ENABLED:
+    MIDDLEWARE = [
+        "django_prometheus.middleware.PrometheusBeforeMiddleware",
+        *MIDDLEWARE,
+        "django_prometheus.middleware.PrometheusAfterMiddleware",
+    ]
+
 ROOT_URLCONF = "team2_final.urls"
 
 TEMPLATES = [
@@ -211,111 +245,151 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "team2_final.wsgi.application"
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
-DB_ENGINE = os.getenv("DB_ENGINE", "sqlite").lower()
 
-# postgres 엔진 문자열 허용 범위 확장
-_is_postgres = DB_ENGINE in {"postgres", "postgresql", "psql"}
+# ─────────────────────────────────────────────────────────────────────────────
+# 6) Database — 우선순위 로직
+# ─────────────────────────────────────────────────────────────────────────────
+def _pg_host_default() -> str:
+    """도커 내부 기본 호스트는 'db', 로컬-도커 교차 시 DOCKER_LOCAL=1이면 host.docker.internal"""
+    return "host.docker.internal" if env_get("DOCKER_LOCAL", "0") == "1" else "db"
 
-if _is_postgres:
-    # 로컬 도커 컨테이너에서 호스트(Postgres)에 붙고 싶은 경우:
-    #   DOCKER_LOCAL=1 를 주면 POSTGRES_HOST 기본값이 host.docker.internal 로 전환됨.
-    #   (compose/k8s 에서는 DOCKER_LOCAL 미지정 → 기본값 'db' 유지)
-    _docker_local = os.getenv("DOCKER_LOCAL", "0") == "1"
-    _default_host = "host.docker.internal" if _docker_local else "db"
 
-    # 환경변수로 덮어쓸 수 있음(POSTGRES_HOST 가 설정되어 있으면 그대로 사용)
-    _pg_host = os.getenv("POSTGRES_HOST", _default_host)
-
-    # 커넥션 유지시간 ENV 지원 (기본 60초)
-    try:
-        _conn_max_age = int(
-            os.getenv("POSTGRES_CONN_MAX_AGE", os.getenv("CONN_MAX_AGE", "60"))
-        )
-    except ValueError:
-        _conn_max_age = 60
-
-    DATABASES = {
-        "default": {
+def _db_from_url(url: str):
+    p = urlparse(url)
+    scheme = (p.scheme or "").lower()
+    if scheme.startswith("postgres"):
+        return {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.getenv("POSTGRES_DB", "team2_final"),
-            "USER": os.getenv("POSTGRES_USER", "team2_user"),
-            "PASSWORD": os.getenv("POSTGRES_PASSWORD", "supersecret"),
-            "HOST": _pg_host,
-            "PORT": os.getenv("POSTGRES_PORT", "5432"),
-            "CONN_MAX_AGE": _conn_max_age,
+            "NAME": (p.path or "/").lstrip("/") or "postgres",
+            "USER": p.username or "",
+            "PASSWORD": p.password or "",
+            "HOST": p.hostname or _pg_host_default(),
+            "PORT": str(p.port or 5432),
+            "CONN_MAX_AGE": int(
+                env_get("POSTGRES_CONN_MAX_AGE", env_get("CONN_MAX_AGE", "60"))
+            ),
         }
-    }
-else:
-    # 기본은 SQLite 로 스모크에 용이
-    _sqlite_path = os.getenv("SQLITE_PATH", BASE_DIR / "db.sqlite3")
-    DATABASES = {
-        "default": {
+    elif scheme.startswith("sqlite"):
+        sqlite_path = p.path or (BASE_DIR / "db.sqlite3")
+        return {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": _sqlite_path,
+            "NAME": str(sqlite_path if isinstance(sqlite_path, Path) else sqlite_path),
         }
+    # 알 수 없는 스킴이면 안전하게 sqlite
+    return {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": str(BASE_DIR / "db.sqlite3"),
     }
 
-# Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
+
+DATABASE_URL = env_get("DATABASE_URL")
+
+if DATABASE_URL:
+    DATABASES = {"default": _db_from_url(DATABASE_URL)}
+else:
+    # 1) DB_* 세트 우선
+    DB_NAME = env_get("DB_NAME")
+    DB_USER = env_get("DB_USER")
+    DB_PASSWORD = env_get("DB_PASSWORD")
+    DB_HOST = env_get("DB_HOST")
+    DB_PORT = env_get("DB_PORT", "5432")
+
+    # 2) POSTGRES_* 세트(기존 compose 스타일)
+    PG_NAME = env_get("POSTGRES_DB")
+    PG_USER = env_get("POSTGRES_USER")
+    PG_PASSWORD = env_get("POSTGRES_PASSWORD")
+    PG_HOST = env_get("POSTGRES_HOST")
+    PG_PORT = env_get("POSTGRES_PORT", "5432")
+
+    if DB_NAME and DB_USER and (DB_HOST or PG_HOST):
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": DB_NAME,
+                "USER": DB_USER,
+                "PASSWORD": DB_PASSWORD or "",
+                "HOST": DB_HOST or PG_HOST or _pg_host_default(),
+                "PORT": DB_PORT,
+                "CONN_MAX_AGE": int(
+                    env_get("POSTGRES_CONN_MAX_AGE", env_get("CONN_MAX_AGE", "60"))
+                ),
+            }
+        }
+    elif PG_NAME and PG_USER:
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": PG_NAME,
+                "USER": PG_USER,
+                "PASSWORD": PG_PASSWORD or "",
+                "HOST": PG_HOST or _pg_host_default(),
+                "PORT": PG_PORT,
+                "CONN_MAX_AGE": int(
+                    env_get("POSTGRES_CONN_MAX_AGE", env_get("CONN_MAX_AGE", "60"))
+                ),
+            }
+        }
+    else:
+        # Fallback: 개발용 sqlite
+        SQLITE_PATH = env_get("SQLITE_PATH", BASE_DIR / "db.sqlite3")
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": SQLITE_PATH,
+            }
+        }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7) 패스워드 정책
+# ─────────────────────────────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
     {
-        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
     },
-    {
-        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
-    },
-    {
-        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
-    },
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
+# ─────────────────────────────────────────────────────────────────────────────
+# 8) 국제화/시간대
+# ─────────────────────────────────────────────────────────────────────────────
 LANGUAGE_CODE = "ko-kr"
 TIME_ZONE = "Asia/Seoul"
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
+# ─────────────────────────────────────────────────────────────────────────────
+# 9) 정적/미디어
+# ─────────────────────────────────────────────────────────────────────────────
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [
-    BASE_DIR / "static",
-    # BASE_DIR / 'team2_final' / 'static',
-]
+STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
+# ─────────────────────────────────────────────────────────────────────────────
+# 10) 기본 PK 유형
+# ─────────────────────────────────────────────────────────────────────────────
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# 커스텀 유저 모델 설정 (이 줄이 중요!)
+# ─────────────────────────────────────────────────────────────────────────────
+# 11) 사용자 인증 모델/리다이렉트
+# ─────────────────────────────────────────────────────────────────────────────
 AUTH_USER_MODEL = "users.CustomUser"
+LOGIN_REDIRECT_URL = "/tasks/dashboard/"
+LOGOUT_REDIRECT_URL = "/"
 
-# 로그인/로그아웃 이동
-LOGIN_REDIRECT_URL = "/tasks/dashboard/"  # 로그인 후 항상 대시보드로
-LOGOUT_REDIRECT_URL = "/"  # 로그아웃 후 메인(landing)으로
-
-# ─────────────────────────────────────────────────────────────
-# OAuth 설정
-#  - 뷰 코드가 settings의 REDIRECT_URI를 그대로 사용하므로
-#    로컬(dev)에서는 http 콜백을 "정확히" 고정하세요.
-#  - 카카오/네이버 콘솔 Redirect URI와 1바이트도 다르면 400 발생.
-# ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# 12) OAuth (카카오/네이버)
+# ─────────────────────────────────────────────────────────────────────────────
 OAUTH = {
     "KAKAO": {
-        "CLIENT_ID": os.environ.get("KAKAO_CLIENT_ID", ""),
-        "CLIENT_SECRET": os.environ.get("KAKAO_CLIENT_SECRET", ""),
-        "REDIRECT_URI": os.environ.get(
-            "KAKAO_REDIRECT_URI",
-            f"{SITE_URL}/users/oauth/kakao/callback/",
+        "CLIENT_ID": env_get("KAKAO_CLIENT_ID", ""),
+        "CLIENT_SECRET": env_get("KAKAO_CLIENT_SECRET", ""),
+        "REDIRECT_URI": env_get(
+            "KAKAO_REDIRECT_URI", f"{SITE_URL}/users/oauth/kakao/callback/"
         ),
         "AUTH_URL": "https://kauth.kakao.com/oauth/authorize",
         "TOKEN_URL": "https://kauth.kakao.com/oauth/token",
@@ -323,16 +397,15 @@ OAUTH = {
         "SCOPE": ["profile_nickname"],
     },
     "NAVER": {
-        "CLIENT_ID": os.environ.get("NAVER_CLIENT_ID", ""),
-        "CLIENT_SECRET": os.environ.get("NAVER_CLIENT_SECRET", ""),
-        "REDIRECT_URI": os.environ.get(
-            "NAVER_REDIRECT_URI",
-            f"{SITE_URL}/users/oauth/naver/callback/",
+        "CLIENT_ID": env_get("NAVER_CLIENT_ID", ""),
+        "CLIENT_SECRET": env_get("NAVER_CLIENT_SECRET", ""),
+        "REDIRECT_URI": env_get(
+            "NAVER_REDIRECT_URI", f"{SITE_URL}/users/oauth/naver/callback/"
         ),
         "AUTH_URL": "https://nid.naver.com/oauth2.0/authorize",
         "TOKEN_URL": "https://nid.naver.com/oauth2.0/token",
         "ME_URL": "https://openapi.naver.com/v1/nid/me",
-        "SCOPE": ["name", "email"],  # 표기는 의미상, 실제는 state 필수
+        "SCOPE": ["name", "email"],
     },
 }
 
@@ -344,8 +417,10 @@ SPECTACULAR_SETTINGS = {
 
 WORKOUT_KCAL_PER_MIN = 5
 
-# 프런트가 도는 오리진을 정확히 지정
-_front_origins = os.getenv("CORS_ALLOWED_ORIGINS", "")
+# ─────────────────────────────────────────────────────────────────────────────
+# 13) CORS
+# ─────────────────────────────────────────────────────────────────────────────
+_front_origins = env_get("CORS_ALLOWED_ORIGINS", "")
 if _front_origins:
     CORS_ALLOWED_ORIGINS = [o.strip() for o in _front_origins.split(",") if o.strip()]
 else:
@@ -356,10 +431,9 @@ else:
         "http://127.0.0.1:8001",
     ]
 
-# 인증 헤더 허용
 CORS_ALLOW_HEADERS = (
-    list(os.getenv("CORS_ALLOW_HEADERS", "").split(","))
-    if os.getenv("CORS_ALLOW_HEADERS")
+    list(env_get("CORS_ALLOW_HEADERS", "").split(","))
+    if env_get("CORS_ALLOW_HEADERS")
     else [
         "authorization",
         "content-type",
@@ -369,8 +443,8 @@ CORS_ALLOW_HEADERS = (
         "origin",
     ]
 )
-CORS_ALLOW_CREDENTIALS = True  # 쿠키 인증을 쓸 경우에만 True
+CORS_ALLOW_CREDENTIALS = True
 
 # ───────── AI Utils 퍼지 매칭 설정 ─────────
-FUZZY_SCORE_THRESHOLD = 86.0  # 퍼지 매칭 최소 점수 (0~100)
-FUZZY_CANDIDATES_LIMIT = 7  # 후보 개수 제한
+FUZZY_SCORE_THRESHOLD = 86.0
+FUZZY_CANDIDATES_LIMIT = 7

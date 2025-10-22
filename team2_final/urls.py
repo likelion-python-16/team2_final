@@ -153,3 +153,6 @@ urlpatterns = [
 # ---------- 개발용 미디어 서빙 (업로드 이미지 표시용) ----------
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+if getattr(settings, "PROM_ENABLED", False):
+    urlpatterns += [path("", include("django_prometheus.urls"))]
