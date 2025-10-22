@@ -9,132 +9,156 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+
 import os
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-# .env 로드
-load_dotenv()
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# ─────────────────────────────────────────────────────────────────────────────
+# 0) 환경 준비: .env는 "로컬 개발" 편의용으로만 읽기 (배포/CI는 환경변수로 주입)
+# ─────────────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=BASE_DIR / ".env")  # 있으면 읽고, 없으면 무시
+
+# 런타임 컨텍스트
+DJANGO_ENV = os.environ.get("DJANGO_ENV", "local").lower()  # local | ci | prod
 IN_DOCKER = os.getenv("IN_DOCKER") == "1"
+DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 
-HF_TOKEN = os.getenv("HF_TOKEN")
-HF_IMAGE_MODEL = os.getenv("HF_IMAGE_MODEL")
-HF_TEXT_MODEL = os.getenv("HF_TEXT_MODEL")
+# ─────────────────────────────────────────────────────────────────────────────
+# 1) SECRET_KEY: 배포/CI에서는 반드시 환경변수로 주입. 로컬만 .env 허용
+# ─────────────────────────────────────────────────────────────────────────────
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", None)
 
-# MFDS CSV 기본 경로
-MFDS_FOOD_CSV = BASE_DIR / "intakes" / "data" / "mfds_foods.csv"
+if not SECRET_KEY:
+    if DJANGO_ENV in {"local"} and DEBUG:
+        # 로컬 개발만 편의 허용(커밋 금지된 .env에서 로드됨)
+        SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
+    else:
+        # 배포/CI 방어: 키가 없으면 즉시 실패
+        raise RuntimeError(
+            "DJANGO_SECRET_KEY가 설정되지 않았습니다. (배포/CI는 환경변수 필수)"
+        )
 
-# ── Nutrition AI / Meal Analyze 옵션 ──
-# 매칭률(%)이 이 값 이상이면 정상 매칭으로 간주하여 저장 허용
-MEAL_MATCH_THRESHOLD = float(os.getenv("MEAL_MATCH_THRESHOLD", "70.0"))
-# 매칭률이 기준 미만일 때도 CSV 가늠값(없으면 기본 kcal)으로 저장 허용할지
-ALLOW_FALLBACK_SAVE_BELOW = os.getenv("ALLOW_FALLBACK_SAVE_BELOW", "True").lower() == "true"
-# CSV에서 못 찾았을 때 최소로 넣을 기본 칼로리
-DEFAULT_FALLBACK_KCAL = float(os.getenv("DEFAULT_FALLBACK_KCAL", "300.0"))
-# 유틸/뷰에서 사용할 표준 경로 변수(기존 변수와 호환 유지)
-MFDS_CSV_PATH = MFDS_FOOD_CSV
-
-# ── 개발환경용 보안 기본값 ──
-SECURE_SSL_REDIRECT = False
-SECURE_PROXY_SSL_HEADER = None
-USE_X_FORWARDED_HOST = False
-
-# 로컬 개발 기본 도메인 (OAuth 콜백 포함)
-# ※ 카카오/네이버 콘솔에 등록된 주소와 "완전히" 동일해야 합니다.
+# ─────────────────────────────────────────────────────────────────────────────
+# 2) 기본 보안 플래그
+# ─────────────────────────────────────────────────────────────────────────────
+# 로컬 개발 기본 도메인 (OAuth 콜백 포함) — 콘솔 등록값과 '완전 동일'해야 함
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000")
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
-# SECRET_KEY = 'django-insecure-8ro5jdf4f%7^ywpft$ari3*&qeuaa*^p&$5t2x!c(esvry'
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
-if DEBUG and not IN_DOCKER:
+# HTTPS/쿠키 보안
+if DEBUG and DJANGO_ENV == "local" and not IN_DOCKER:
+    # 로컬 개발 편의
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
     SESSION_COOKIE_SAMESITE = "Lax"
     CSRF_COOKIE_SAMESITE = "Lax"
-    SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-insecure-secret-key")
+    SECURE_SSL_REDIRECT = False
+    SECURE_PROXY_SSL_HEADER = None
+    USE_X_FORWARDED_HOST = False
 else:
-    SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]  # 배포에서는 반드시 env로 주입
+    # 배포/CI 기본 보안
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SESSION_COOKIE_SAMESITE = "Lax"  # 대부분의 SPA/SSR에 무난
+    SESSION_COOKIE_SAMESITE = "Lax"
     CSRF_COOKIE_SAMESITE = "Lax"
+    # 프록시/로드밸런서 뒤라면 적절히 켜기 (예: Nginx/ALB 사용 시)
+    SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() == "true"
+    SECURE_PROXY_SSL_HEADER = (
+        ("HTTP_X_FORWARDED_PROTO", "https")
+        if os.getenv("USE_X_FORWARDED_PROTO", "False").lower() == "true"
+        else None
+    )
+    USE_X_FORWARDED_HOST = os.getenv("USE_X_FORWARDED_HOST", "False").lower() == "true"
 
-# 호스트/CSRF 설정
+# ─────────────────────────────────────────────────────────────────────────────
+# 3) ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS
+# ─────────────────────────────────────────────────────────────────────────────
 _env_hosts = os.getenv("DJANGO_ALLOWED_HOSTS", "")
 if _env_hosts:
     ALLOWED_HOSTS = [h.strip() for h in _env_hosts.split(",") if h.strip()]
 else:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
-# CSRF_TRUSTED_ORIGINS: 모든 허용 호스트에 대해 http/https + 주요 포트(8000/8001) 추가
 CSRF_TRUSTED_ORIGINS = []
-def _add_csrf_origins(host):
-    # origin은 scheme 포함해야 함
-    CSRF_TRUSTED_ORIGINS.extend([
-        f"http://{host}",
-        f"https://{host}",
-        f"http://{host}:8000",
-        f"https://{host}:8000",
-        f"http://{host}:8001",
-        f"https://{host}:8001",
-    ])
+
+
+def _add_csrf_origins(host: str):
+    CSRF_TRUSTED_ORIGINS.extend(
+        [
+            f"http://{host}",
+            f"https://{host}",
+            f"http://{host}:8000",
+            f"https://{host}:8000",
+            f"http://{host}:8001",
+            f"https://{host}:8001",
+        ]
+    )
+
 
 for h in ALLOWED_HOSTS:
     if h:
         _add_csrf_origins(h)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 4) (그 외) 프로젝트 상수/토큰들 — 환경변수에서 읽기
+# ─────────────────────────────────────────────────────────────────────────────
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_IMAGE_MODEL = os.getenv("HF_IMAGE_MODEL")
+HF_TEXT_MODEL = os.getenv("HF_TEXT_MODEL")
+
+# MFDS CSV
+MFDS_FOOD_CSV = BASE_DIR / "intakes" / "data" / "mfds_foods.csv"
+MEAL_MATCH_THRESHOLD = float(os.getenv("MEAL_MATCH_THRESHOLD", "70.0"))
+ALLOW_FALLBACK_SAVE_BELOW = (
+    os.getenv("ALLOW_FALLBACK_SAVE_BELOW", "True").lower() == "true"
+)
+DEFAULT_FALLBACK_KCAL = float(os.getenv("DEFAULT_FALLBACK_KCAL", "300.0"))
+MFDS_CSV_PATH = MFDS_FOOD_CSV
+
 # Application definition
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
     # DRF
-    'rest_framework',
-    'rest_framework_simplejwt',
-    'django_filters',
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "django_filters",
     "drf_spectacular",
-    'drf_spectacular_sidecar',
+    "drf_spectacular_sidecar",
     "corsheaders",
-
     # 내 앱들
-    'users',
-    'tasks',
-    'goals',
-    'intakes',
-    'feedbacks',
-    'utils',
-    'ai',
+    "users",
+    "tasks",
+    "goals",
+    "intakes",
+    "feedbacks",
+    "utils",
+    "ai",
 ]
 
 # DRF 설정
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
+    "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
-        ],
+    ],
     # 기본: GET은 익명 허용, POST/PUT/DELETE는 인증 필요
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
-    'DEFAULT_FILTER_BACKENDS': [
-        'django_filters.rest_framework.DjangoFilterBackend',
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
     ],
-    'DEFAULT_RENDERER_CLASSES': [
-        'rest_framework.renderers.JSONRenderer',
-        'rest_framework.renderers.BrowsableAPIRenderer',  # 개발 편의용
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",  # 개발 편의용
     ],
     "EXCEPTION_HANDLER": "utils.exceptions.custom_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -142,50 +166,50 @@ REST_FRAMEWORK = {
 
 # JWT 설정
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=365*10),  # 10년
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=365*20), # 20년
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=365 * 10),  # 10년
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=365 * 20),  # 20년
     # 'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     # 'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': False,      # 블랙리스트 안 쓰므로 False
-    'BLACKLIST_AFTER_ROTATION': False,   # 블랙리스트 안 쓰므로 False
-    'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
+    "ROTATE_REFRESH_TOKENS": False,  # 블랙리스트 안 쓰므로 False
+    "BLACKLIST_AFTER_ROTATION": False,  # 블랙리스트 안 쓰므로 False
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
 }
 
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
-    'django.middleware.security.SecurityMiddleware',
+    "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'team2_final.urls'
+ROOT_URLCONF = "team2_final.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [BASE_DIR / "templates"],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'team2_final.wsgi.application'
+WSGI_APPLICATION = "team2_final.wsgi.application"
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -206,7 +230,9 @@ if _is_postgres:
 
     # 커넥션 유지시간 ENV 지원 (기본 60초)
     try:
-        _conn_max_age = int(os.getenv("POSTGRES_CONN_MAX_AGE", os.getenv("CONN_MAX_AGE", "60")))
+        _conn_max_age = int(
+            os.getenv("POSTGRES_CONN_MAX_AGE", os.getenv("CONN_MAX_AGE", "60"))
+        )
     except ValueError:
         _conn_max_age = 60
 
@@ -234,24 +260,32 @@ else:
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',},
-    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
 ]
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
-LANGUAGE_CODE = 'ko-kr'
-TIME_ZONE = 'Asia/Seoul'
+LANGUAGE_CODE = "ko-kr"
+TIME_ZONE = "Asia/Seoul"
 USE_I18N = True
 USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
-STATIC_URL = '/static/'
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [
-    BASE_DIR / 'static',
+    BASE_DIR / "static",
     # BASE_DIR / 'team2_final' / 'static',
 ]
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -260,14 +294,14 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # 커스텀 유저 모델 설정 (이 줄이 중요!)
-AUTH_USER_MODEL = 'users.CustomUser'
+AUTH_USER_MODEL = "users.CustomUser"
 
 # 로그인/로그아웃 이동
-LOGIN_REDIRECT_URL = '/tasks/dashboard/'   # 로그인 후 항상 대시보드로
-LOGOUT_REDIRECT_URL = '/'                  # 로그아웃 후 메인(landing)으로
+LOGIN_REDIRECT_URL = "/tasks/dashboard/"  # 로그인 후 항상 대시보드로
+LOGOUT_REDIRECT_URL = "/"  # 로그아웃 후 메인(landing)으로
 
 # ─────────────────────────────────────────────────────────────
 # OAuth 설정
@@ -303,9 +337,9 @@ OAUTH = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Team2 Final API',
-    'DESCRIPTION': 'Workout/Meal Tracking API',
-    'VERSION': '0.1.0',
+    "TITLE": "Team2 Final API",
+    "DESCRIPTION": "Workout/Meal Tracking API",
+    "VERSION": "0.1.0",
 }
 
 WORKOUT_KCAL_PER_MIN = 5
@@ -323,11 +357,20 @@ else:
     ]
 
 # 인증 헤더 허용
-CORS_ALLOW_HEADERS = list(os.getenv("CORS_ALLOW_HEADERS", "").split(",")) if os.getenv("CORS_ALLOW_HEADERS") else [
-    "authorization","content-type","x-csrftoken","accept","accept-language","origin"
-]
+CORS_ALLOW_HEADERS = (
+    list(os.getenv("CORS_ALLOW_HEADERS", "").split(","))
+    if os.getenv("CORS_ALLOW_HEADERS")
+    else [
+        "authorization",
+        "content-type",
+        "x-csrftoken",
+        "accept",
+        "accept-language",
+        "origin",
+    ]
+)
 CORS_ALLOW_CREDENTIALS = True  # 쿠키 인증을 쓸 경우에만 True
 
 # ───────── AI Utils 퍼지 매칭 설정 ─────────
-FUZZY_SCORE_THRESHOLD = 86.0   # 퍼지 매칭 최소 점수 (0~100)
-FUZZY_CANDIDATES_LIMIT = 7     # 후보 개수 제한
+FUZZY_SCORE_THRESHOLD = 86.0  # 퍼지 매칭 최소 점수 (0~100)
+FUZZY_CANDIDATES_LIMIT = 7  # 후보 개수 제한
