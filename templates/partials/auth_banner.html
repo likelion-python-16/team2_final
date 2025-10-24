@@ -1,0 +1,20 @@
+<!-- 로그인 유도 배너 (미로그인/세션만료 시 노출) -->
+<div id="auth-banner" class="auth-banner hidden" role="status" aria-live="polite">
+  <div class="auth-banner__inner">
+    <strong>로그인이 필요합니다.</strong>
+    <span>로그인하면 개인 맞춤 대시보드와 저장 기능을 사용할 수 있어요.</span>
+    <div class="auth-banner__actions">
+      <a href="/login/?next={{ request.get_full_path|urlencode }}" class="btn btn-primary" data-auth="login">로그인</a>
+      <button type="button" class="btn" data-auth="dismiss">나중에</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .auth-banner.hidden { display:none; }
+  .auth-banner { background:#0b3; color:#fff; }
+  .auth-banner__inner { max-width:1100px; margin:0 auto; padding:10px 14px; display:flex; gap:10px; align-items:center; justify-content:space-between; }
+  .auth-banner__actions { display:flex; gap:8px; }
+  .btn { padding:6px 10px; border-radius:8px; border:0; cursor:pointer; }
+  .btn-primary { background:#fff; color:#0b3; }
+</style>

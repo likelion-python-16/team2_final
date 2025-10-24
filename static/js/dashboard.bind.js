@@ -6,6 +6,12 @@
 // - 접기/펼치기, 유형별 아코디언, DOM 중복 제거, 토글 PATCH/삭제 DELETE
 // - (선택) 인라인 추가(B7): data-inline-task-form 있으면 자동 활성화
 // 원칙: 템플릿/스타일은 "추가만", 삭제/대수정 없음
+function authFetch(url, options = {}) {
+  const token = localStorage.getItem('access');
+  const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
+  return fetch(url, { ...options, headers });
+}
+
 
 (function () {
   "use strict";
@@ -655,7 +661,7 @@
   // ----- loaders -----
   async function loadSummary() {
     const d = selectedDate();
-    const res = await api.get(`/api/workoutplans/summary/?date=${encodeURIComponent(d)}`);
+    const res = await (await authFetch(`/api/workoutplans/summary/?date=${encodeURIComponent(d)}`)).json();
     setTextSafe($("#sum-total-min"),        res?.total_min ?? 0);
     setTextSafe($("#sum-total-tasks"),      res?.tasks_count ?? 0);
     setTextSafe($("#sum-completed-tasks"),  res?.completed_count ?? 0);

@@ -16,6 +16,13 @@
     return m ? m.pop() : '';
   }
 
+  function authFetch(url, options = {}) {
+    const token = localStorage.getItem('access');
+    const headers = { ...(options.headers || {}), Authorization: `Bearer ${token}` };
+    return fetch(url, { ...options, headers });
+  }
+
+
   // 🔐 안전한 헤더 래퍼
   function authHeaders() {
     if (typeof window.authHeaders === "function") return window.authHeaders();
@@ -218,7 +225,7 @@
 
   async function refreshSmartPanels(iso, planId) {
     // 백엔드가 없어도 에러 없이 "No ..."로 안전 처리
-    const summary = await fetchJsonSafe(`${API_BASE}/workoutplans/summary/?date=${encodeURIComponent(iso)}`);
+    const summary = await (await authFetch(`${API_BASE}/workoutplans/summary/?date=${encodeURIComponent(iso)}`)).json();
     renderSummary(summary);
 
     const reco = await fetchJsonSafe(`${API_BASE}/recommendations/?date=${encodeURIComponent(iso)}${planId?`&workout_plan=${planId}`:""}`);

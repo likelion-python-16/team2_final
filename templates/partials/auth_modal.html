@@ -1,0 +1,35 @@
+<!-- templates/partials/auth_modal.html -->
+<div id="auth-modal" class="auth-modal hidden">
+  <div class="auth-modal__backdrop"></div>
+  <div class="auth-modal__panel" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <h2 id="auth-modal-title">로그인이 필요합니다</h2>
+    <p class="auth-modal__desc">세션이 만료되었어요. 다시 로그인해 주세요.</p>
+
+    <form id="auth-modal-form" class="auth-modal__form">
+      <input type="text" name="username" placeholder="아이디" required autocomplete="username" />
+      <input type="password" name="password" placeholder="비밀번호" required autocomplete="current-password" />
+      <input type="hidden" name="next" value="" />
+      <button type="submit">로그인</button>
+      <button type="button" id="auth-modal-cancel" class="secondary">나중에</button>
+    </form>
+
+    <p id="auth-modal-error" class="auth-modal__error" aria-live="polite"></p>
+  </div>
+</div>
+
+<style>
+  .auth-modal.hidden { display:none; }
+  .auth-modal__backdrop {
+    position:fixed; inset:0; background:rgba(0,0,0,.45); backdrop-filter:saturate(1.2) blur(2px);
+  }
+  .auth-modal__panel {
+    position:fixed; inset:auto; left:50%; top:15%;
+    transform:translateX(-50%); width:min(420px, 92vw);
+    background:#111; color:#eee; border-radius:16px; padding:20px; box-shadow:0 10px 30px rgba(0,0,0,.5);
+  }
+  .auth-modal__form { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+  .auth-modal__form input { padding:10px; border-radius:10px; border:1px solid #333; background:#1b1b1b; color:#eee; }
+  .auth-modal__form button { padding:10px 12px; border-radius:10px; border:0; cursor:pointer; }
+  .auth-modal__form .secondary { background:#2c2c2c; }
+  .auth-modal__error { color:#ff6b6b; min-height:1.2em; margin-top:6px; }
+</style>

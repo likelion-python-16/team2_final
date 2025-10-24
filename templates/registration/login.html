@@ -94,6 +94,45 @@
 
           <button type="submit" class="auth-submit">Sign in</button>
         </form>
+        <script>
+        (function () {
+          // 로그인 폼 자동 감지
+          const form =
+            document.querySelector('form[action*="login"]') ||
+            document.querySelector('form.auth-fields');
+
+          if (!form) return;
+
+          // 제출 직전에 JWT 토큰 받아서 localStorage에 저장
+          form.addEventListener('submit', async (e) => {
+            try {
+              const uEl = form.querySelector('input[name="username"], #id_username');
+              const pEl = form.querySelector('input[name="password"], #id_password');
+              const username = uEl && uEl.value;
+              const password = pEl && pEl.value;
+              if (!username || !password) return; // 값 없으면 그냥 진행
+
+              const res = await fetch('/auth/token/', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username, password })
+              });
+
+              if (res.ok) {
+                const t = await res.json();
+                if (t?.access) {
+                  localStorage.setItem('access', t.access);
+                  if (t.refresh) localStorage.setItem('refresh', t.refresh);
+                }
+              }
+              // 실패해도 본 로그인 제출은 그대로 진행
+            } catch (_) {
+              // 조용히 패스
+            }
+            // 기본 제출 계속(서버 세션 로그인)
+          }, { capture: true });
+        })();
+        </script>
 
         <p class="auth-footer">
           Don't have an account?

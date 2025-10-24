@@ -18,7 +18,10 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
+import environ
 from dotenv import dotenv_values, load_dotenv
+
+env = environ.Env()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 기본 경로 / .env 로드
@@ -71,30 +74,39 @@ if not SECRET_KEY:
         raise RuntimeError("DJANGO_SECRET_KEY가 설정되지 않았습니다. (배포/CI는 필수)")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2) 기본 보안 플래그
+# 2) 기본 보안/쿠키 플래그 (모두 env 기반; 기본은 HTTP 친화)
 # ─────────────────────────────────────────────────────────────────────────────
 SITE_URL = env_get("SITE_URL", "http://127.0.0.1:8000")
 
-if DEBUG and DJANGO_ENV == "local" and not IN_DOCKER:
-    SESSION_COOKIE_SECURE = False
-    CSRF_COOKIE_SECURE = False
-    SESSION_COOKIE_SAMESITE = "Lax"
-    CSRF_COOKIE_SAMESITE = "Lax"
-    SECURE_SSL_REDIRECT = False
-    SECURE_PROXY_SSL_HEADER = None
-    USE_X_FORWARDED_HOST = False
-else:
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SESSION_COOKIE_SAMESITE = "Lax"
-    CSRF_COOKIE_SAMESITE = "Lax"
-    SECURE_SSL_REDIRECT = env_get("SECURE_SSL_REDIRECT", "False").lower() == "true"
-    SECURE_PROXY_SSL_HEADER = (
-        ("HTTP_X_FORWARDED_PROTO", "https")
-        if env_get("USE_X_FORWARDED_PROTO", "False").lower() == "true"
-        else None
-    )
-    USE_X_FORWARDED_HOST = env_get("USE_X_FORWARDED_HOST", "False").lower() == "true"
+# HTTPS 사용 시 True로 바꾸면 됨
+SECURE_SSL_REDIRECT = env_get("SECURE_SSL_REDIRECT", "False").lower() == "true"
+
+# ★ 핵심: HTTP 임시 모드 기본값(False). HTTPS 전환 시 compose/env에서 True로만 바꾸면 됨.
+SESSION_COOKIE_SECURE = env_get("SESSION_COOKIE_SECURE", "False").lower() == "true"
+CSRF_COOKIE_SECURE = env_get("CSRF_COOKIE_SECURE", "False").lower() == "true"
+
+# SameSite 기본값은 Lax (세션/CSRF 각각 분리 지정 가능)
+SESSION_COOKIE_SAMESITE = env_get("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = env_get("CSRF_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_HTTPONLY = env_get("CSRF_COOKIE_HTTPONLY", "False").lower() == "true"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 리버스 프록시가 X-Forwarded-Proto를 전달하면 True
+USE_X_FORWARDED_PROTO = env_get("USE_X_FORWARDED_PROTO", "False").lower() == "true"
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if USE_X_FORWARDED_PROTO else None
+)
+
+# 호스트 헤더 신뢰 (필요 시만 True)
+USE_X_FORWARDED_HOST = env_get("USE_X_FORWARDED_HOST", "False").lower() == "true"
+
+# ★ 핵심: HTTP 임시 모드 기본값(False). HTTPS 전환 시 compose/env에서 True로만 바꾸면 됨.
+SESSION_COOKIE_SECURE = env_get("SESSION_COOKIE_SECURE", "False").lower() == "true"
+CSRF_COOKIE_SECURE = env_get("CSRF_COOKIE_SECURE", "False").lower() == "true"
+
+# SameSite 기본값은 Lax (세션/CSRF 각각 분리 지정 가능)
+SESSION_COOKIE_SAMESITE = env_get("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = env_get("CSRF_COOKIE_SAMESITE", "Lax")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3) ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS
@@ -109,6 +121,7 @@ CSRF_TRUSTED_ORIGINS: list[str] = []
 
 
 def _add_csrf_origins(host: str):
+    # 포트가 바뀌는 환경(nginx:80/443, dev 8000/8001) 모두 대비
     CSRF_TRUSTED_ORIGINS.extend(
         [
             f"http://{host}",

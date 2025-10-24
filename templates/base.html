@@ -69,9 +69,10 @@
   <main>
     {% block content %}{% endblock %}
   </main>
+  {% include "partials/auth_banner.html" %}
+  <script src="{% static 'js/common/auth.state.js' %}"></script>
 
   <!-- 푸터(기존 partial 감싸기) -->
-
   <!-- ✅ 공통 UI 유틸 (body 끝에 두는 게 안전) -->
   <script src="{% static 'js/common/ui.js' %}"></script>
   <!-- 공통 날짜 유틸 -->
@@ -79,5 +80,33 @@
 
   <!-- 페이지별 스크립트 -->
   {% block extra_js %}{% endblock %}
+  <script>
+  // 전역 인증 fetch (401 핸들 포함)
+  window.authFetch = async function(url, opts = {}) {
+    const token = localStorage.getItem('access');
+    const headers = { ...(opts.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    // JSON 편의
+    if (opts.json) {
+      headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(opts.json);
+      delete opts.json;
+    }
+    const res = await fetch(url, { ...opts, headers });
+    if (res.status === 401) {
+      // 토큰 없음/만료 → 로그인으로 유도 (필요 시 refresh 로직을 다음 단계에서 붙이자)
+      console.warn('Unauthorized -> redirect to login');
+      window.location.href = '/accounts/login/?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+      throw new Error('Unauthorized');
+    }
+    return res;
+  };
+</script>
+{% include "partials/auth_modal.html" %}
+<script src="{% static 'js/common/ui.auth.js' %}"></script>
+{% include "partials/toast.html" %}
+<script src="{% static 'js/common/ui.toast.js' %}"></script>
+
+
 </body>
 </html>

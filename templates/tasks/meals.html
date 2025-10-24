@@ -247,4 +247,16 @@
 {% block extra_js %}
   {{ block.super }}
   <script src="{% static 'js/meals.js' %}?v=5.3-fix"></script>
+  <script>
+  window.onAuthRehydrate = () => {
+    // 예시:
+    api.get(`/api/workoutplans/summary/?date=${new Date().toISOString().slice(0,10)}`, { useJWT: true })
+      .then((data) => {
+        // 화면 갱신 로직…
+        console.log("[rehydrate] summary", data);
+      })
+      .catch(console.error);
+  };
+</script>
+
 {% endblock %}
