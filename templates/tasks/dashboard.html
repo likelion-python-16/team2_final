@@ -21,7 +21,7 @@
       <!-- ✅ C7 훅: 선택 날짜 (없으면 JS에서 오늘로 대체) -->
       <label for="selected-date" class="sr-only">선택 날짜</label>
       <input id="selected-date" type="date" value="{{ today|date:'Y-m-d' }}" />
-      <a class="btn btn--ghost" href="/users/profile/">Profile</a>
+      <a class="btn btn--ghost" href="{% url 'user_profile' %}">Profile</a>
       <a class="btn btn--primary" href="#insights">AI Insights</a>
     </div>
   </header>
