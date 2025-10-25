@@ -18,8 +18,8 @@
           <p>Sign in to your account</p>
         </header>
 
-        <!-- ✅ 소셜 로그인 버튼 (엔드포인트 연결 전까지 # 유지) -->
-        <div class="auth-oauth">
+        <!-- 소셜 로그인 유지 -->
+        <div class="auth-oauth" style="margin-bottom: .75rem;">
           <a class="oauth-button oauth-button--kakao" href="{% url 'users:kakao_login' %}" aria-label="카카오 로그인">
             <span class="oauth-button__icon oauth-button__icon--kakao" aria-hidden="true">K</span>
             <span>Continue with Kakao</span>
@@ -32,13 +32,12 @@
           </a>
         </div>
 
-        <div class="auth-divider"><span>or</span></div>
+        <div class="auth-divider" style="margin-top:0"><span>Sign in</span></div>
 
-        <!-- ✅ 기본 로그인 폼: login으로 POST + 성공 시 대시보드로 이동 -->
-        <form method="post" action="{% url 'login' %}" class="auth-fields" novalidate>
+        <!-- 세션 로그인 폼 (제출 직전 JWT 선발급) -->
+        <form method="post" action="{% url 'login' %}" class="auth-fields" novalidate id="loginForm">
           {% csrf_token %}
 
-          {# next 파라미터가 있다면 유지, 없으면 대시보드로 #}
           {% if next %}
             <input type="hidden" name="next" value="{{ next }}">
           {% else %}
@@ -46,7 +45,7 @@
           {% endif %}
 
           {% if form.non_field_errors %}
-            <div class="auth-error">
+            <div class="auth-error" aria-live="polite">
               {% for error in form.non_field_errors %}
                 <p>{{ error }}</p>
               {% endfor %}
@@ -63,6 +62,8 @@
               class="auth-input"
               placeholder="Enter your email"
               required
+              autocomplete="username"
+              inputmode="email"
             />
             {% if form.username.errors %}
               <small class="auth-error-text">{{ form.username.errors.0 }}</small>
@@ -78,6 +79,7 @@
               class="auth-input auth-input--password"
               placeholder="Enter your password"
               required
+              autocomplete="current-password"
             />
             {% if form.password.errors %}
               <small class="auth-error-text">{{ form.password.errors.0 }}</small>
@@ -92,51 +94,13 @@
             <a href="{% url 'password_reset' %}" class="auth-link">Forgot password?</a>
           </div>
 
-          <button type="submit" class="auth-submit">Sign in</button>
+          <button type="submit" class="auth-submit" id="loginSubmitBtn">Sign in</button>
+          <p class="auth-error" id="jwtInlineErr" style="display:none;margin-top:.75rem;" aria-live="polite"></p>
         </form>
-        <script>
-        (function () {
-          // 로그인 폼 자동 감지
-          const form =
-            document.querySelector('form[action*="login"]') ||
-            document.querySelector('form.auth-fields');
 
-          if (!form) return;
-
-          // 제출 직전에 JWT 토큰 받아서 localStorage에 저장
-          form.addEventListener('submit', async (e) => {
-            try {
-              const uEl = form.querySelector('input[name="username"], #id_username');
-              const pEl = form.querySelector('input[name="password"], #id_password');
-              const username = uEl && uEl.value;
-              const password = pEl && pEl.value;
-              if (!username || !password) return; // 값 없으면 그냥 진행
-
-              const res = await fetch('/auth/token/', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ username, password })
-              });
-
-              if (res.ok) {
-                const t = await res.json();
-                if (t?.access) {
-                  localStorage.setItem('access', t.access);
-                  if (t.refresh) localStorage.setItem('refresh', t.refresh);
-                }
-              }
-              // 실패해도 본 로그인 제출은 그대로 진행
-            } catch (_) {
-              // 조용히 패스
-            }
-            // 기본 제출 계속(서버 세션 로그인)
-          }, { capture: true });
-        })();
-        </script>
-
-        <p class="auth-footer">
-          Don't have an account?
-          <a href="{% url 'user_signup' %}" class="auth-link">Sign up</a>
+        <p class="auth-footer" style="margin-top:1rem;">
+          계정이 없으신가요?
+          <a href="{% url 'user_signup' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="auth-link">Create an account</a>
         </p>
       </div>
     </section>
@@ -144,10 +108,131 @@
     <aside class="auth-side">
       <div class="auth-side__quote">
         <blockquote>
-          <p>Getting AI, auth, and data in one place simplified our workflow.</p>
+          <p>“Secure session + JWT, best of both.”</p>
         </blockquote>
       </div>
     </aside>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+  // ==============================
+  // 0) 회원가입 -> 로그인 자동진입
+  //    signup 페이지가 sessionStorage.autoLogin 에 {u,p,next} 저장 후
+  //    여기로 돌아오면 자동으로 JWT + 세션로그인 진행
+  // ==============================
+  (function () {
+    const payload = sessionStorage.getItem('autoLogin');
+    if (!payload) return;
+
+    try {
+      const { u, p, next } = JSON.parse(payload);
+      sessionStorage.removeItem('autoLogin');
+
+      const form = document.getElementById('loginForm');
+      if (form) {
+        const uEl = form.querySelector('#id_username');
+        const pEl = form.querySelector('#id_password');
+        if (uEl && pEl) {
+          uEl.value = u || '';
+          pEl.value = p || '';
+        }
+        if (next) {
+          const nextEl = form.querySelector('input[name="next"]');
+          if (nextEl) nextEl.value = next;
+        }
+        // 즉시 제출 → 아래 1) 로직으로 JWT + 세션 로그인
+        setTimeout(() => form.requestSubmit(), 0);
+      }
+    } catch (_) {
+      sessionStorage.removeItem('autoLogin');
+    }
+  })();
+
+  // ==============================
+  // 1) 일반 로그인: JWT 선발급 후 세션 로그인
+  // ==============================
+  (function () {
+    const form =
+      document.querySelector('form[action*="login"]') ||
+      document.querySelector('form.auth-fields');
+    if (!form) return;
+
+    const submitBtn = document.getElementById('loginSubmitBtn');
+    const jwtErr = document.getElementById('jwtInlineErr');
+    let submitting = false;
+
+    function setLoading(flag) {
+      submitting = !!flag;
+      if (!submitBtn) return;
+      submitBtn.disabled = submitting;
+      submitBtn.classList.toggle('is-loading', submitting);
+    }
+    function showJwtError(msg) {
+      if (!jwtErr) return;
+      jwtErr.textContent = msg || 'Token fetch failed. Continuing with session login.';
+      jwtErr.style.display = 'block';
+    }
+
+    form.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && submitting) e.preventDefault();
+    });
+
+    form.addEventListener('submit', async (e) => {
+      if (submitting) { e.preventDefault(); return; }
+      e.preventDefault();
+
+      const uEl = form.querySelector('input[name="username"], #id_username');
+      const pEl = form.querySelector('input[name="password"], #id_password');
+      const username = (uEl && uEl.value || '').trim();
+      const password = (pEl && pEl.value) || '';
+
+      if (!username || !password) { form.submit(); return; }
+
+      setLoading(true);
+      if (jwtErr) jwtErr.style.display = 'none';
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2000); // 2초 타임아웃
+
+      try {
+        const res = await fetch('/auth/token/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ username, password }),
+          signal: ctrl.signal
+        });
+
+        if (res.ok) {
+          const t = await res.json();
+          if (window.api && typeof api.loginSuccess === 'function') {
+            api.loginSuccess(t); // access/refresh 저장 + 만료 자동 갱신
+          } else {
+            if (t?.access) localStorage.setItem('access', t.access);
+            if (t?.refresh) localStorage.setItem('refresh', t.refresh);
+          }
+        } else {
+          try {
+            const text = await res.text();
+            const j = text ? JSON.parse(text) : null;
+            const msg = (j && (j.detail || j.message)) || text || ('HTTP ' + res.status);
+            showJwtError(msg);
+          } catch {
+            showJwtError('Cannot get JWT token.');
+          }
+        }
+      } catch (_) {
+        showJwtError('Network issue while fetching token.');
+      } finally {
+        clearTimeout(timer);
+        setLoading(false);
+        form.submit(); // 세션 로그인 진행
+      }
+    }, { capture: true });
+  })();
+  </script>
 {% endblock %}

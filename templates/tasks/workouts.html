@@ -415,8 +415,8 @@
   <script>
   window.onAuthRehydrate = () => {
     // 예시:
-    api.get(`/api/workoutplans/summary/?date=${new Date().toISOString().slice(0,10)}`, { useJWT: true })
-      .then((data) => {
+    api.authFetch(`/api/workoutplans/summary/?date=${new Date().toISOString().slice(0,10)}`)
+      .then(data => {
         // 화면 갱신 로직…
         console.log("[rehydrate] summary", data);
       })

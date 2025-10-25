@@ -21,6 +21,9 @@
     <!-- 오늘의 영양 현황 -->
     <section class="meals-card">
       <h2>오늘의 영양 현황</h2>
+      <!-- ★ 추가: 요약 한 줄 표시 -->
+      <p id="wp-summary-line" class="muted" hidden></p>
+
       <div class="meal-summary-grid">
         {% for item in nutrition_summary %}
           <div class="meal-summary" data-goal="{{ item.goal }}">
@@ -248,15 +251,30 @@
   {{ block.super }}
   <script src="{% static 'js/meals.js' %}?v=5.3-fix"></script>
   <script>
-  window.onAuthRehydrate = () => {
-    // 예시:
-    api.get(`/api/workoutplans/summary/?date=${new Date().toISOString().slice(0,10)}`, { useJWT: true })
-      .then((data) => {
-        // 화면 갱신 로직…
-        console.log("[rehydrate] summary", data);
-      })
-      .catch(console.error);
-  };
-</script>
+  /* 페이지 로드 시 요약 재조회: JWT는 api.authFetch 사용 */
+  document.addEventListener("DOMContentLoaded", async () => {
+    try {
+      const date = new Date().toISOString().slice(0,10);
+      const s = await api.authFetch(`/api/workoutplans/summary/?date=${date}`);
 
+      // 최소 보장: 한 줄 요약 표시
+      const line = document.getElementById("wp-summary-line");
+      if (line) {
+        line.textContent = `오늘 운동 ${s.total_min ?? 0}분 · ${s.tasks_count ?? 0}개 중 ${s.completed_count ?? 0} 완료 · 칼로리 ${s.calories ?? 0}kcal`;
+        line.hidden = false;
+      }
+
+      // 전용 갱신 함수가 있으면 호출
+      if (typeof window.updateMealsSummaryUI === "function") {
+        window.updateMealsSummaryUI(s);
+      } else if (typeof window.updateSummaryUI === "function") {
+        window.updateSummaryUI(s);
+      } else {
+        console.debug("[meals] summary", s);
+      }
+    } catch (e) {
+      console.error(api.toUserMessage(e));
+    }
+  });
+  </script>
 {% endblock %}

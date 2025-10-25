@@ -1,14 +1,15 @@
 // static/js/common/api.js
 (function () {
   const api = {};
-  api.useJWT = false; // 기본은 세션 우선. 필요 시 true로 전환(Bearer 사용)
+  // CHANGE: 기본 모드를 JWT 사용으로 전환 (로컬/배포 동일 흐름)
+  api.useJWT = true;
 
   // --- 내부 상태 ---
   let refreshingPromise = null;     // refresh 동시호출 방지
   let refreshTimerId = null;        // 만료 전 자동 갱신 타이머
   const AUTH_CH = newSafeBroadcastChannel("auth"); // 탭 간 동기화 채널
 
-  // --- 전역 UX 훅 (Step 24: 토스트/스피너 연결용) ---
+  // --- 전역 UX 훅 (토스트/스피너 연결용) ---
   api.onRequestStart = null; // (ctx) => {}
   api.onRequestEnd   = null; // (ctx) => {}
   api.onRequestError = null; // (error, ctx) => {}
@@ -51,8 +52,9 @@
     try {
       const p = token.split(".")[1];
       if (!p) return null;
+      // NOTE: atob는 유니코드 처리에 주의. 여기서는 URL-safe 보정만.
       const json = atob(p.replace(/-/g, "+").replace(/_/g, "/"));
-      return JSON.parse(decodeURIComponent(escape(json)));
+      return JSON.parse(json);
     } catch { return null; }
   }
   function getAccessExpiryMs() {
@@ -109,6 +111,23 @@
   }
 
   // --- 로그인/로그아웃 헬퍼 (페이지에서 직접 호출 가능) ---
+  // CHANGE: 표준 로그인 헬퍼 추가 (/auth/token/ 사용)
+  api.login = async function (username, password) {
+    const res = await fetch("/auth/token/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+      credentials: "same-origin",
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new ApiError("Login failed", res.status, safeJson(txt));
+    }
+    const data = await res.json();
+    api.loginSuccess({ access: data.access, refresh: data.refresh });
+    return data;
+  };
+
   api.loginSuccess = function ({ access, refresh }) {
     if (access) setAccessToken(access);
     if (refresh) setRefreshToken(refresh);
@@ -250,7 +269,7 @@
       signal: opts.signal,
     });
 
-    // (Step 24) 첫 시도 시작 시점에만 onRequestStart 호출
+    // 첫 시도 시작 시점에만 onRequestStart 호출
     const ctx = { url, method, useJWT: (opts.useJWT ?? api.useJWT) };
     if (typeof api.onRequestStart === "function") { try { api.onRequestStart(ctx); } catch {} }
 
@@ -340,88 +359,84 @@
   api.ApiError = ApiError;
 
   // --- Error Normalizer (DRF/Validation/Generic) ---
-function parseErrorObject(err) {
-  // err: ApiError | Error | unknown
-  const out = { status: 0, code: "", message: "", fields: {} };
-  if (!err) return out;
+  function parseErrorObject(err) {
+    const out = { status: 0, code: "", message: "", fields: {} };
+    if (!err) return out;
 
-  if (err instanceof api.ApiError) {
-    out.status = err.status || 0;
+    if (err instanceof api.ApiError) {
+      out.status = err.status || 0;
 
-    // payload가 문자열인 경우
-    if (typeof err.payload === "string") {
-      out.message = String(err.payload);
-      return out;
-    }
-
-    const p = err.payload || {};
-    // DRF 표준: {detail: "..."} 또는 {detail: {code, message}}
-    if (p.detail) {
-      if (typeof p.detail === "string") {
-        out.message = p.detail;
-      } else if (p.detail.message) {
-        out.message = p.detail.message;
-        out.code = p.detail.code || "";
+      if (typeof err.payload === "string") {
+        out.message = String(err.payload);
+        return out;
       }
-    }
 
-    // DRF Validation: {field1: ["..."], non_field_errors: ["..."]}
-    // 또는 {errors: {...}}
-    const src = p.errors || p;
-    for (const k of Object.keys(src || {})) {
-      if (k === "detail") continue;
-      const v = src[k];
-      if (Array.isArray(v)) {
-        out.fields[k] = v.map(String);
-      } else if (typeof v === "string") {
-        out.fields[k] = [v];
+      const p = err.payload || {};
+      if (p.detail) {
+        if (typeof p.detail === "string") {
+          out.message = p.detail;
+        } else if (p.detail.message) {
+          out.message = p.detail.message;
+          out.code = p.detail.code || "";
+        }
       }
-    }
 
-    // 가장 대표 메시지 선택
-    if (!out.message) {
-      if (out.fields.non_field_errors?.length) out.message = out.fields.non_field_errors[0];
-      else {
-        const firstField = Object.keys(out.fields)[0];
-        if (firstField) out.message = out.fields[firstField][0];
+      const src = p.errors || p;
+      for (const k of Object.keys(src || {})) {
+        if (k === "detail") continue;
+        const v = src[k];
+        if (Array.isArray(v)) {
+          out.fields[k] = v.map(String);
+        } else if (typeof v === "string") {
+          out.fields[k] = [v];
+        }
       }
+
+      if (!out.message) {
+        if (out.fields.non_field_errors?.length) out.message = out.fields.non_field_errors[0];
+        else {
+          const firstField = Object.keys(out.fields)[0];
+          if (firstField) out.message = out.fields[firstField][0];
+        }
+      }
+    } else if (err instanceof Error) {
+      out.message = err.message || "요청 처리 중 오류가 발생했습니다.";
+    } else {
+      out.message = "요청 처리 중 오류가 발생했습니다.";
     }
-  } else if (err instanceof Error) {
-    out.message = err.message || "요청 처리 중 오류가 발생했습니다.";
-  } else {
-    out.message = "요청 처리 중 오류가 발생했습니다.";
+    return out;
   }
-  return out;
-}
 
-function toUserMessage(err) {
-  const e = parseErrorObject(err);
-  const s = e.status || 0;
-  const base = (t) => t || "요청 처리 중 문제가 발생했습니다.";
+  function toUserMessage(err) {
+    const e = parseErrorObject(err);
+    const s = e.status || 0;
+    const base = (t) => t || "요청 처리 중 문제가 발생했습니다.";
 
-  // HTTP 코드에 따른 공통 문구
-  if (s === 0) return base("네트워크 오류가 발생했습니다. 연결을 확인해 주세요.");
-  if (s === 400) return base(e.message || "잘못된 요청입니다. 입력값을 확인해 주세요.");
-  if (s === 401) return "로그인이 필요합니다.";
-  if (s === 403) return "권한이 없습니다.";
-  if (s === 404) return "요청하신 자원을 찾을 수 없습니다.";
-  if (s === 409) return base(e.message || "충돌이 발생했습니다. 이미 존재하는 데이터일 수 있어요.");
-  if (s === 413) return "업로드 용량 제한을 초과했습니다.";
-  if (s === 422) return base(e.message || "검증에 실패했습니다. 입력값을 확인해 주세요.");
-  if (s === 429) return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
-  if (s >= 500) return "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+    if (s === 0) return base("네트워크 오류가 발생했습니다. 연결을 확인해 주세요.");
+    if (s === 400) return base(e.message || "잘못된 요청입니다. 입력값을 확인해 주세요.");
+    if (s === 401) return "로그인이 필요합니다.";
+    if (s === 403) return "권한이 없습니다.";
+    if (s === 404) return "요청하신 자원을 찾을 수 없습니다.";
+    if (s === 409) return base(e.message || "충돌이 발생했습니다. 이미 존재하는 데이터일 수 있어요.");
+    if (s === 413) return "업로드 용량 제한을 초과했습니다.";
+    if (s === 422) return base(e.message || "검증에 실패했습니다. 입력값을 확인해 주세요.");
+    if (s === 429) return "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.";
+    if (s >= 500) return "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
 
-  // 필드 에러가 있으면 가장 첫 항목 우선
-  if (e.message) return e.message;
-  return base();
-}
+    if (e.message) return e.message;
+    return base();
+  }
 
-// ★ 외부 노출 (ui.toast.js에서 사용)
-api.parseError = parseErrorObject;
-api.toUserMessage = toUserMessage;
+  // 외부 노출 (ui.toast.js에서 사용)
+  api.parseError = parseErrorObject;
+  api.toUserMessage = toUserMessage;
+
+  // CHANGE: authFetch 헬퍼 제공 (항상 JWT 사용하도록 강제)
+  api.authFetch = (url, opts = {}) => fetchJson(url, { ...opts, useJWT: true });
 
   // 초기 스케줄 (페이지 로드 시 1회)
   scheduleProactiveRefresh();
 
+  // 전역 노출
   window.api = api;
 })();

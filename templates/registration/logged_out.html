@@ -1,17 +1,23 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Logged Out{% endblock %}
+
 {% block extra_head %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 {% endblock %}
+
 {% block content %}
 <div class="logout-shell">
   <div class="logout-card">
     <div class="logout-icon">👋</div>
     <h1>See you soon!</h1>
     <p>로그아웃되었습니다. 언제든 다시 돌아오세요.</p>
-    <a class="health-button-primary" href="/accounts/login/">로그인 화면으로</a>
+
+    <!-- 재로그인: /accounts/login/ 은 django.contrib.auth.urls 의 기본 로그인 경로 -->
+    <form action="{% url 'login' %}" method="get">
+      <button type="submit" class="health-button-primary">로그인 화면으로</button>
+    </form>
   </div>
 </div>
 {% endblock %}

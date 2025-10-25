@@ -7,7 +7,7 @@ from django.contrib import admin
 from django.contrib.auth.views import LogoutView
 from django.http import FileResponse, JsonResponse
 from django.urls import include, path, re_path
-from django.views.generic import RedirectView
+from django.views.generic import RedirectView, TemplateView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -19,16 +19,12 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView,
 )
 
-from tasks import urls as tasks_urls
-
 # 앱별 urls
+from tasks import urls as tasks_urls
 from users import urls as users_urls
 from users import views as users_views
 
 # 로컬 뷰
-from . import views
-
-# Public(AllowAny) JWT 뷰
 from .auth_views import (
     PublicTokenObtainPairView,
     PublicTokenRefreshView,
@@ -42,12 +38,7 @@ from .views import landing
 # ---------- 유틸성 뷰 ----------
 def api_root_healthcheck(_request):
     """API 루트 상태 정보 (루트 충돌 피하려고 /api/health 로 이동)"""
-    return JsonResponse(
-        {
-            "status": "ok",
-            "message": "Workout & feedback API root",
-        }
-    )
+    return JsonResponse({"status": "ok", "message": "Workout & feedback API root"})
 
 
 def api_docs(_request):
@@ -61,7 +52,9 @@ def api_docs(_request):
 urlpatterns = [
     # ---------- 기본 페이지 ----------
     path("", landing, name="landing"),  # 루트는 landing만 사용
-    # 편의 리다이렉트: 로그인만 유지 (logout 리다이렉트는 제거)
+    # 편의 리다이렉트: /login/ → /accounts/login/
+    path("login/", RedirectView.as_view(url="/accounts/login/", permanent=False)),
+    # (기존) /users/login/ 도 /accounts/login/ 로 정리
     path("users/login/", RedirectView.as_view(url="/accounts/login/", permanent=False)),
     # ✅ 실제 LogoutView 경로(POST 전용). 템플릿에서는 반드시 POST 폼으로 호출할 것.
     path(
@@ -94,15 +87,16 @@ urlpatterns = [
     path("profile/", users_views.profile_view, name="user_profile"),
     path(
         "signup/",
-        RedirectView.as_view(pattern_name="login", permanent=False),
+        TemplateView.as_view(template_name="users/signup.html"),
         name="user_signup",
     ),
-    # ---------- JWT ----------
-    # 기본 JWT
+    # ---------- JWT (기본 SimpleJWT) ----------
+    # 내부 개발/관리자용, SessionAuth/CSRF 영향 받을 수 있음
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
-    # Public JWT (AllowAny)
+    # ---------- Public JWT (CSRF 비활성화) ----------
+    # 프론트/모바일/외부 클라이언트 전용
     path(
         "auth/token/",
         PublicTokenObtainPairView.as_view(),
@@ -119,6 +113,7 @@ urlpatterns = [
         name="public_token_verify",
     ),
     # ---------- API 라우트 ----------
+    # /api/users/ ... (UserViewSet)
     path(
         "api/",
         include((users_urls.api_urlpatterns, "users_api"), namespace="users_api"),
@@ -131,8 +126,17 @@ urlpatterns = [
     path("api/", include("intakes.urls")),
     path("api/", include("feedbacks.urls")),
     path("api/ai/", include("ai.urls")),
+    # ---------- AUTH 라우트 (회원가입 API) ----------
+    # ✅ /auth/register/ 열기
+    path(
+        "auth/",
+        include((users_urls.auth_urlpatterns, "users_auth"), namespace="users_auth"),
+    ),
     # ---------- 페이지 라우트 ----------
+    # OAuth/Logout 등: /users/oauth/... , /users/logout/
     path("users/", include((users_urls.page_urlpatterns, "users"), namespace="users")),
+    # ---------- Tasks 페이지 라우트 (네임스페이스 보장) ----------
+    # reverse('tasks:dashboard') 등을 위해 반드시 등록
     path("tasks/", include((tasks_urls.page_urlpatterns, "tasks"), namespace="tasks")),
     # ---------- 레거시/오타 경로 흡수 ----------
     re_path(
