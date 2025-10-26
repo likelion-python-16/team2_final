@@ -28,3 +28,18 @@ pgdata/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Backup files
+*.sql
+*.dump
+*.tar.gz
+db_backup_*.*
+media_backup_*.*
+
+# Node (if frontend uses npm/yarn)
+node_modules/
