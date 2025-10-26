@@ -1,0 +1,32 @@
+groups:
+  - name: uptime.rules
+    rules:
+      # 1) 프로브 실패(성공률 0) 1분 지속 시 = CRITICAL
+      - alert: BlackboxProbeFailed
+        expr: probe_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Blackbox probe failed for {{ $labels.instance }}"
+          description: "target={{ $labels.instance }}, module={{ $labels.module }}"
+
+      # 2) HTTP 상태코드가 200이 아님(프로브는 성공 상태) 2분 지속 = WARNING
+      - alert: BlackboxHTTPNot200
+        expr: (probe_http_status_code != 200) and on(instance) (probe_success == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Non-200 HTTP from {{ $labels.instance }}"
+          description: "status={{ $value }} (expected 200)"
+
+      # 3) 전체 프로브 지연 p95가 1초 초과 5분 지속 = INFO
+      - alert: HealthzSlowP95
+        expr: histogram_quantile(0.95, sum(rate(probe_duration_seconds_bucket[5m])) by (le, instance)) > 1
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "High p95 latency for {{ $labels.instance }}"
+          description: "p95 latency > 1s (over last 5m)"

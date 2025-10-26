@@ -1,0 +1,67 @@
+route:
+  group_by: ['alertname', 'instance']
+  group_wait: 15s
+  group_interval: 2m
+  repeat_interval: 2h
+  receiver: 'slack_default'
+  routes:
+    - matchers: [ severity="critical" ]
+      receiver: 'slack_critical'
+    - matchers: [ severity="critical" ]
+      receiver: 'discord_critical'
+    - matchers: [ severity="warning" ]
+      receiver: 'discord_default'
+
+receivers:
+  # Slack 기본
+  - name: 'slack_default'
+    slack_configs:
+      - api_url: ${ALERTMANAGER_SLACK_WEBHOOK_URL}
+        channel: ${SLACK_CHANNEL}
+        username: ${SLACK_USERNAME}
+        send_resolved: true
+        title: "{{ .Status | toUpper }}: {{ .CommonAnnotations.summary }}"
+        text: |
+          {{ range .Alerts -}}
+          • *{{ .Labels.alertname }}* on `{{ .Labels.instance }}` ({{ .Labels.severity }})
+            {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+          {{ end }}
+
+  # Slack 크리티컬
+  - name: 'slack_critical'
+    slack_configs:
+      - api_url: ${ALERTMANAGER_SLACK_WEBHOOK_URL}
+        channel: ${SLACK_CHANNEL}
+        username: "${SLACK_USERNAME}-CRIT"
+        send_resolved: true
+        title: "🚨 CRITICAL: {{ .CommonAnnotations.summary }}"
+        text: |
+          {{ range .Alerts -}}
+          *{{ .Labels.alertname }}* on `{{ .Labels.instance }}`
+          severity={{ .Labels.severity }}
+          {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+          {{ end }}
+
+  # Discord 기본
+  - name: 'discord_default'
+    discord_configs:
+      - webhook_url: ${DISCORD_WEBHOOK_URL}
+        send_resolved: true
+        title: "{{ .Status | toUpper }}: {{ .CommonAnnotations.summary }}"
+        message: |
+          {{ range .Alerts -}}
+          • **{{ .Labels.alertname }}** on `{{ .Labels.instance }}` ({{ .Labels.severity }})
+            {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+          {{ end }}
+
+  # Discord 크리티컬
+  - name: 'discord_critical'
+    discord_configs:
+      - webhook_url: ${DISCORD_WEBHOOK_URL}
+        send_resolved: true
+        title: "🚨 CRITICAL: {{ .CommonAnnotations.summary }}"
+        message: |
+          {{ range .Alerts -}}
+          **{{ .Labels.alertname }}** on `{{ .Labels.instance }}` (severity={{ .Labels.severity }})
+          {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+          {{ end }}
