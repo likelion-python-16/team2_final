@@ -1,64 +1,30 @@
-# docker-compose.yml  (Compose V2: version 키 생략)
+# Compose V2 (version 키 생략)
 
 services:
-  db:
-    image: postgres:16
-    container_name: team2_final_db
-    environment:
-      POSTGRES_DB: team2_final
-      POSTGRES_USER: team2_user
-      POSTGRES_PASSWORD: supersecret
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h db -U team2_user -d team2_final || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    restart: unless-stopped
-    # ports:
-    #   - "5432:5432"
-
   api:
     build:
       context: .
       dockerfile: Dockerfile
     image: team2/api:dev
     container_name: team2_web
-    depends_on:
-      db:
-        condition: service_healthy
+    env_file: .env.prod
     environment:
-      # ---- Django ----
       IN_DOCKER: "1"
       DJANGO_SETTINGS_MODULE: team2_final.settings
-      DJANGO_TIME_ZONE: Asia/Seoul
-      DJANGO_DEBUG: "False"
-      DJANGO_SECRET_KEY: "CHANGE_ME_FOR_LOCAL_ONLY"
-
-      # 공인 IP / 퍼블릭 DNS로 교체
-      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1,35.172.136.176,ec2-35-172-136-176.compute-1.amazonaws.com"
-      CSRF_TRUSTED_ORIGINS: "http://35.172.136.176,http://ec2-35-172-136-176.compute-1.amazonaws.com"
-      CSRF_COOKIE_SECURE: "False"
-      SESSION_COOKIE_SECURE: "False"
-      CSRF_COOKIE_SAMESITE: "Lax"
-      CSRF_COOKIE_HTTPONLY: "False"
-
-      # ---- DB ----
-      DB_ENGINE: "postgres"
-      POSTGRES_DB: "team2_final"
-      POSTGRES_USER: "team2_user"
-      POSTGRES_PASSWORD: "supersecret"
-      POSTGRES_HOST: "db"
-      POSTGRES_PORT: "5432"
-
-      # ---- Gunicorn ----
-      GUNICORN_CMD_ARGS: "--bind=0.0.0.0:8000 --workers=3 --threads=2 --timeout=60 --chdir=/app --access-logfile -"
-
+      DJANGO_TIME_ZONE: "${TIME_ZONE:-Asia/Seoul}"
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
+      GUNICORN_CMD_ARGS: >
+        --bind=0.0.0.0:8000
+        --workers=2
+        --threads=2
+        --timeout=60
+        --keep-alive=15
+        --chdir=/app
+        --access-logfile=-
     command: >
       bash -lc "
-        python manage.py collectstatic --noinput &&
         python manage.py migrate --noinput &&
+        python manage.py collectstatic --noinput &&
         exec gunicorn team2_final.wsgi:application
       "
     healthcheck:
@@ -68,9 +34,6 @@ services:
       retries: 6
       start_period: 45s
     restart: unless-stopped
-    # 진단용 임시 오픈
-    # ports:
-    #   - "8000:8000"
 
   nginx:
     image: nginx:1.27
@@ -102,7 +65,6 @@ services:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     restart: unless-stopped
 
-  # --- NEW: Grafana (대시보드 & Discord 알림) ---
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -113,20 +75,18 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin1234
-      # 외부에서 임시 접근 허용 필요 시(선택)
-      # GF_SERVER_ROOT_URL: http://<EC2_IP>:3000/
     volumes:
       - grafana-data:/var/lib/grafana
     restart: unless-stopped
 
-  # --- Blackbox Exporter (API/NGINX 헬스 HTTP 프로브) ---
   blackbox:
     image: prom/blackbox-exporter:latest
     container_name: blackbox
     ports:
       - "9115:9115"
+    volumes:
+      - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
     restart: unless-stopped
 
 volumes:
-  pgdata:
   grafana-data:

@@ -79,3 +79,5 @@ urllib3==2.5.0
 virtualenv==20.35.3
 wcwidth==0.2.14
 whitenoise==6.11.0
+boto3
+django-storages

@@ -11,7 +11,12 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 - DB 우선순위: DATABASE_URL > DB_* > POSTGRES_* > sqlite
 - 도커 기본 호스트는 'db', DOCKER_LOCAL=1이면 host.docker.internal
+- dotenv 우선순위: OS 환경변수 > .env > .env.prod > 기본값
+- DB 우선순위: DATABASE_URL > DB_* > POSTGRES_* > sqlite
+- 도커 기본 호스트는 'db', DOCKER_LOCAL=1이면 host.docker.internal
 """
+
+from __future__ import annotations
 
 import os
 from datetime import timedelta
@@ -24,31 +29,34 @@ from dotenv import dotenv_values, load_dotenv
 env = environ.Env()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 기본 경로 / .env 로드
+# 기본 경로 / .env / .env.prod 로드 (우선순위는 env_get 함수가 보장)
 # ─────────────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 ENV_PATH = BASE_DIR / ".env"
-if ENV_PATH.exists():
-    # 로컬 개발 편의를 위해 override=True (배포에서는 OS env가 우선이 되도록 False도 가능)
-    load_dotenv(ENV_PATH, override=True)
-else:
-    print(f"[dotenv] .env not found at {ENV_PATH}")
+ENV_PROD_PATH = BASE_DIR / ".env.prod"
 
-# .env 주입 실패 케이스를 대비해 파일을 직접 파싱해 병합하는 헬퍼
-_ENV_FILE_VARS = {}
-try:
-    _ENV_FILE_VARS = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
-except Exception as _e:
-    print("[dotenv] parse error:", _e)
+# 개발 편의: .env가 있을 때만 로드(배포는 compose가 OS env로 주입)
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH, override=False)  # OS env가 1순위이므로 override=False
+
+# 파일 파싱(실패해도 조용히 통과)
+_FILE_ENV = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+_FILE_ENV_PROD = dotenv_values(ENV_PROD_PATH) if ENV_PROD_PATH.exists() else {}
 
 
 def env_get(key: str, default=None):
-    """OS 환경변수 → .env 파일 값 → 기본값 순으로 조회"""
+    """
+    우선순위: OS 환경변수 → .env → .env.prod → default
+    (.env.prod는 로컬에서 배포 값 참고용 '백업 소스' 정도로만 사용)
+    """
     v = os.getenv(key)
     if v not in (None, ""):
         return v
-    v = _ENV_FILE_VARS.get(key)
+    v = _FILE_ENV.get(key)
+    if v not in (None, ""):
+        return v
+    v = _FILE_ENV_PROD.get(key)
     if v not in (None, ""):
         return v
     return default
@@ -74,39 +82,29 @@ if not SECRET_KEY:
         raise RuntimeError("DJANGO_SECRET_KEY가 설정되지 않았습니다. (배포/CI는 필수)")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2) 기본 보안/쿠키 플래그 (모두 env 기반; 기본은 HTTP 친화)
+# 2) 기본 보안/쿠키 플래그 (HTTP 기본값, HTTPS 전환 시 주석 해제)
 # ─────────────────────────────────────────────────────────────────────────────
 SITE_URL = env_get("SITE_URL", "http://127.0.0.1:8000")
 
-# HTTPS 사용 시 True로 바꾸면 됨
-SECURE_SSL_REDIRECT = env_get("SECURE_SSL_REDIRECT", "False").lower() == "true"
+# ── HTTPS 전환 시 아래를 True로 전환(또는 주석 해제)하여 사용 ──
+# SECURE_SSL_REDIRECT = env_get("SECURE_SSL_REDIRECT", "False").lower() == "true"
+# SESSION_COOKIE_SECURE = env_get("SESSION_COOKIE_SECURE", "False").lower() == "true"
+# CSRF_COOKIE_SECURE = env_get("CSRF_COOKIE_SECURE", "False").lower() == "true"
+# SECURE_HSTS_SECONDS = int(env_get("SECURE_HSTS_SECONDS", "0"))
+# SECURE_HSTS_INCLUDE_SUBDOMAINS = env_get("SECURE_HSTS_INCLUDE_SUBDOMAINS", "False").lower() == "true"
+# SECURE_HSTS_PRELOAD = env_get("SECURE_HSTS_PRELOAD", "False").lower() == "true"
+# USE_X_FORWARDED_PROTO = env_get("USE_X_FORWARDED_PROTO", "False").lower() == "true"
+# SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if USE_X_FORWARDED_PROTO else None
 
-# ★ 핵심: HTTP 임시 모드 기본값(False). HTTPS 전환 시 compose/env에서 True로만 바꾸면 됨.
-SESSION_COOKIE_SECURE = env_get("SESSION_COOKIE_SECURE", "False").lower() == "true"
-CSRF_COOKIE_SECURE = env_get("CSRF_COOKIE_SECURE", "False").lower() == "true"
+# HTTP 기본값 (현재 운영 계획에 맞춤)
+SECURE_SSL_REDIRECT = False
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
 
-# SameSite 기본값은 Lax (세션/CSRF 각각 분리 지정 가능)
+# SameSite 기본값은 Lax
 SESSION_COOKIE_SAMESITE = env_get("SESSION_COOKIE_SAMESITE", "Lax")
 CSRF_COOKIE_SAMESITE = env_get("CSRF_COOKIE_SAMESITE", "Lax")
 CSRF_COOKIE_HTTPONLY = env_get("CSRF_COOKIE_HTTPONLY", "False").lower() == "true"
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 리버스 프록시가 X-Forwarded-Proto를 전달하면 True
-USE_X_FORWARDED_PROTO = env_get("USE_X_FORWARDED_PROTO", "False").lower() == "true"
-SECURE_PROXY_SSL_HEADER = (
-    ("HTTP_X_FORWARDED_PROTO", "https") if USE_X_FORWARDED_PROTO else None
-)
-
-# 호스트 헤더 신뢰 (필요 시만 True)
-USE_X_FORWARDED_HOST = env_get("USE_X_FORWARDED_HOST", "False").lower() == "true"
-
-# ★ 핵심: HTTP 임시 모드 기본값(False). HTTPS 전환 시 compose/env에서 True로만 바꾸면 됨.
-SESSION_COOKIE_SECURE = env_get("SESSION_COOKIE_SECURE", "False").lower() == "true"
-CSRF_COOKIE_SECURE = env_get("CSRF_COOKIE_SECURE", "False").lower() == "true"
-
-# SameSite 기본값은 Lax (세션/CSRF 각각 분리 지정 가능)
-SESSION_COOKIE_SAMESITE = env_get("SESSION_COOKIE_SAMESITE", "Lax")
-CSRF_COOKIE_SAMESITE = env_get("CSRF_COOKIE_SAMESITE", "Lax")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3) ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS
@@ -121,7 +119,6 @@ CSRF_TRUSTED_ORIGINS: list[str] = []
 
 
 def _add_csrf_origins(host: str):
-    # 포트가 바뀌는 환경(nginx:80/443, dev 8000/8001) 모두 대비
     CSRF_TRUSTED_ORIGINS.extend(
         [
             f"http://{host}",
@@ -170,6 +167,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "drf_spectacular_sidecar",
     "corsheaders",
+    # "storages"  ← S3 사용 시 아래에서 동적으로 추가
     # 내 앱들
     "users",
     "tasks",
@@ -186,7 +184,7 @@ if PROM_ENABLED:
 
         INSTALLED_APPS.append("django_prometheus")
     except Exception:
-        PROM_ENABLED = False  # 모듈 없으면 자동 비활성화
+        PROM_ENABLED = False
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -207,9 +205,21 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
+
+# 토큰 만료는 발표 직전에 env로 조절할 수 있도록 훅만 둠
+def _int_minutes(key: str, default: int):
+    try:
+        return int(env_get(key, str(default)))
+    except Exception:
+        return default
+
+
+ACCESS_MIN = _int_minutes("ACCESS_TOKEN_MINUTES", 60 * 24 * 365 * 10)  # 기본: 매우 길게
+REFRESH_MIN = _int_minutes("REFRESH_TOKEN_MINUTES", 60 * 24 * 365 * 20)
+
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=365 * 10),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=365 * 20),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=ACCESS_MIN),
+    "REFRESH_TOKEN_LIFETIME": timedelta(minutes=REFRESH_MIN),
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,
     "ALGORITHM": "HS256",
@@ -260,11 +270,27 @@ WSGI_APPLICATION = "team2_final.wsgi.application"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6) Database — 우선순위 로직
+# 6) Database — 우선순위 로직 + 일관된 커넥션/SSL 옵션
 # ─────────────────────────────────────────────────────────────────────────────
 def _pg_host_default() -> str:
-    """도커 내부 기본 호스트는 'db', 로컬-도커 교차 시 DOCKER_LOCAL=1이면 host.docker.internal"""
     return "host.docker.internal" if env_get("DOCKER_LOCAL", "0") == "1" else "db"
+
+
+def _conn_max_age() -> int:
+    # 여러 이름 모두 지원 (마이그레이션/환경 이질성 대응)
+    return int(
+        env_get(
+            "DB_CONN_MAX_AGE",
+            env_get("CONN_MAX_AGE", env_get("POSTGRES_CONN_MAX_AGE", "60")),
+        )
+    )
+
+
+def _sslmode() -> str:
+    # 기본 require (RDS 보안 기본값)
+    return env_get(
+        "DB_SSLMODE", env_get("POSTGRES_SSLMODE", env_get("SSLMODE", "require"))
+    )
 
 
 def _db_from_url(url: str):
@@ -278,16 +304,12 @@ def _db_from_url(url: str):
             "PASSWORD": p.password or "",
             "HOST": p.hostname or _pg_host_default(),
             "PORT": str(p.port or 5432),
-            "CONN_MAX_AGE": int(
-                env_get("POSTGRES_CONN_MAX_AGE", env_get("CONN_MAX_AGE", "60"))
-            ),
+            "CONN_MAX_AGE": _conn_max_age(),
+            "OPTIONS": {"sslmode": _sslmode()},
         }
     elif scheme.startswith("sqlite"):
         sqlite_path = p.path or (BASE_DIR / "db.sqlite3")
-        return {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": str(sqlite_path if isinstance(sqlite_path, Path) else sqlite_path),
-        }
+        return {"ENGINE": "django.db.backends.sqlite3", "NAME": str(sqlite_path)}
     # 알 수 없는 스킴이면 안전하게 sqlite
     return {
         "ENGINE": "django.db.backends.sqlite3",
@@ -323,9 +345,8 @@ else:
                 "PASSWORD": DB_PASSWORD or "",
                 "HOST": DB_HOST or PG_HOST or _pg_host_default(),
                 "PORT": DB_PORT,
-                "CONN_MAX_AGE": int(
-                    env_get("POSTGRES_CONN_MAX_AGE", env_get("CONN_MAX_AGE", "60"))
-                ),
+                "CONN_MAX_AGE": _conn_max_age(),
+                "OPTIONS": {"sslmode": _sslmode()},
             }
         }
     elif PG_NAME and PG_USER:
@@ -337,9 +358,8 @@ else:
                 "PASSWORD": PG_PASSWORD or "",
                 "HOST": PG_HOST or _pg_host_default(),
                 "PORT": PG_PORT,
-                "CONN_MAX_AGE": int(
-                    env_get("POSTGRES_CONN_MAX_AGE", env_get("CONN_MAX_AGE", "60"))
-                ),
+                "CONN_MAX_AGE": _conn_max_age(),
+                "OPTIONS": {"sslmode": _sslmode()},
             }
         }
     else:
@@ -348,7 +368,7 @@ else:
         DATABASES = {
             "default": {
                 "ENGINE": "django.db.backends.sqlite3",
-                "NAME": SQLITE_PATH,
+                "NAME": str(SQLITE_PATH),
             }
         }
 
@@ -373,12 +393,16 @@ USE_I18N = True
 USE_TZ = True
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 9) 정적/미디어
+# 9) 정적/미디어 (정적=WhiteNoise, 미디어=로컬 기본)
 # ─────────────────────────────────────────────────────────────────────────────
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# WhiteNoise 권장 스토리지
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# 기본(로컬) 미디어 경로
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -458,6 +482,45 @@ CORS_ALLOW_HEADERS = (
 )
 CORS_ALLOW_CREDENTIALS = True
 
-# ───────── AI Utils 퍼지 매칭 설정 ─────────
-FUZZY_SCORE_THRESHOLD = 86.0
-FUZZY_CANDIDATES_LIMIT = 7
+# ─────────────────────────────────────────────────────────────────────────────
+# 14) Storage: Static(WhiteNoise) + Media(S3, optional)
+# ─────────────────────────────────────────────────────────────────────────────
+from distutils.util import strtobool
+
+USE_S3 = strtobool(env_get("USE_S3", "False"))
+
+if USE_S3:
+    # django-storages 활성화
+    INSTALLED_APPS += ["storages"]
+
+    AWS_STORAGE_BUCKET_NAME = env_get("AWS_STORAGE_BUCKET_NAME", "")
+    AWS_S3_REGION_NAME = env_get("AWS_S3_REGION_NAME", "us-east-1")
+
+    # 플랜 B(임시 키) — Role 쓰면 boto3가 자동으로 Role 우선 사용
+    AWS_ACCESS_KEY_ID = env_get("AWS_ACCESS_KEY_ID", None)
+    AWS_SECRET_ACCESS_KEY = env_get("AWS_SECRET_ACCESS_KEY", None)
+
+    # 퍼블릭 GET시 쿼리스트링 제거(가독성)
+    AWS_QUERYSTRING_AUTH = False
+    AWS_S3_SIGNATURE_VERSION = env_get("AWS_S3_SIGNATURE_VERSION", "s3v4")
+
+    # Django 5 권장 STORAGES
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",  # 미디어=S3
+        },
+        "staticfiles": {
+            "BACKEND": STATICFILES_STORAGE,  # 정적=WhiteNoise
+        },
+    }
+
+    # 가시성(하위호환): 찍어볼 때 한 눈에 보이도록
+    DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+
+    # MEDIA_URL override 허용
+    MEDIA_URL = env_get(
+        "MEDIA_URL", f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/"
+    )
+
+    # S3 사용 시 로컬 MEDIA_ROOT는 의미 없음(혼선 방지)
+    MEDIA_ROOT = None
