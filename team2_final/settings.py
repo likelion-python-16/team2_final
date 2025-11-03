@@ -135,6 +135,11 @@ for _h in ALLOWED_HOSTS:
     if _h:
         _add_csrf_origins(_h)
 
+# Docker internal hostname 허용 (Prometheus가 Host: api:8000로 접근)
+if "api" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("api")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 4) 외부 토큰/상수
 # ─────────────────────────────────────────────────────────────────────────────
@@ -270,14 +275,13 @@ WSGI_APPLICATION = "team2_final.wsgi.application"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6) Database — 우선순위 로직 + 일관된 커넥션/SSL 옵션
+# 6) Database — 로컬=SQLite / 배포=Postgres (우선순위 유지)
 # ─────────────────────────────────────────────────────────────────────────────
 def _pg_host_default() -> str:
     return "host.docker.internal" if env_get("DOCKER_LOCAL", "0") == "1" else "db"
 
 
 def _conn_max_age() -> int:
-    # 여러 이름 모두 지원 (마이그레이션/환경 이질성 대응)
     return int(
         env_get(
             "DB_CONN_MAX_AGE",
@@ -287,7 +291,7 @@ def _conn_max_age() -> int:
 
 
 def _sslmode() -> str:
-    # 기본 require (RDS 보안 기본값)
+    # 기본 require (RDS 보안 기본값 가정, 필요시 prod에서 env로 조정)
     return env_get(
         "DB_SSLMODE", env_get("POSTGRES_SSLMODE", env_get("SSLMODE", "require"))
     )
@@ -317,60 +321,79 @@ def _db_from_url(url: str):
     }
 
 
-DATABASE_URL = env_get("DATABASE_URL")
+# ✅ 로컬/배포 토글: USE_SQLITE(기본 1=로컬 sqlite)
+USE_SQLITE = str(env_get("USE_SQLITE", "1")).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "y",
+    "on",
+)
 
-if DATABASE_URL:
-    DATABASES = {"default": _db_from_url(DATABASE_URL)}
+if USE_SQLITE:
+    # 로컬 기본: sqlite (env 오염 방지)
+    SQLITE_PATH = env_get("SQLITE_PATH", BASE_DIR / "db.sqlite3")
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": str(SQLITE_PATH),
+        }
+    }
 else:
-    # 1) DB_* 세트 우선
-    DB_NAME = env_get("DB_NAME")
-    DB_USER = env_get("DB_USER")
-    DB_PASSWORD = env_get("DB_PASSWORD")
-    DB_HOST = env_get("DB_HOST")
-    DB_PORT = env_get("DB_PORT", "5432")
-
-    # 2) POSTGRES_* 세트(기존 compose 스타일)
-    PG_NAME = env_get("POSTGRES_DB")
-    PG_USER = env_get("POSTGRES_USER")
-    PG_PASSWORD = env_get("POSTGRES_PASSWORD")
-    PG_HOST = env_get("POSTGRES_HOST")
-    PG_PORT = env_get("POSTGRES_PORT", "5432")
-
-    if DB_NAME and DB_USER and (DB_HOST or PG_HOST):
-        DATABASES = {
-            "default": {
-                "ENGINE": "django.db.backends.postgresql",
-                "NAME": DB_NAME,
-                "USER": DB_USER,
-                "PASSWORD": DB_PASSWORD or "",
-                "HOST": DB_HOST or PG_HOST or _pg_host_default(),
-                "PORT": DB_PORT,
-                "CONN_MAX_AGE": _conn_max_age(),
-                "OPTIONS": {"sslmode": _sslmode()},
-            }
-        }
-    elif PG_NAME and PG_USER:
-        DATABASES = {
-            "default": {
-                "ENGINE": "django.db.backends.postgresql",
-                "NAME": PG_NAME,
-                "USER": PG_USER,
-                "PASSWORD": PG_PASSWORD or "",
-                "HOST": PG_HOST or _pg_host_default(),
-                "PORT": PG_PORT,
-                "CONN_MAX_AGE": _conn_max_age(),
-                "OPTIONS": {"sslmode": _sslmode()},
-            }
-        }
+    # 배포/테스트: Postgres 우선순위 그대로 유지
+    DATABASE_URL = env_get("DATABASE_URL")
+    if DATABASE_URL:
+        DATABASES = {"default": _db_from_url(DATABASE_URL)}
     else:
-        # Fallback: 개발용 sqlite
-        SQLITE_PATH = env_get("SQLITE_PATH", BASE_DIR / "db.sqlite3")
-        DATABASES = {
-            "default": {
-                "ENGINE": "django.db.backends.sqlite3",
-                "NAME": str(SQLITE_PATH),
+        # 1) DB_* 세트
+        DB_NAME = env_get("DB_NAME")
+        DB_USER = env_get("DB_USER")
+        DB_PASSWORD = env_get("DB_PASSWORD")
+        DB_HOST = env_get("DB_HOST")
+        DB_PORT = env_get("DB_PORT", "5432")
+
+        # 2) POSTGRES_* 세트
+        PG_NAME = env_get("POSTGRES_DB")
+        PG_USER = env_get("POSTGRES_USER")
+        PG_PASSWORD = env_get("POSTGRES_PASSWORD")
+        PG_HOST = env_get("POSTGRES_HOST")
+        PG_PORT = env_get("POSTGRES_PORT", "5432")
+
+        if DB_NAME and DB_USER and (DB_HOST or PG_HOST):
+            DATABASES = {
+                "default": {
+                    "ENGINE": "django.db.backends.postgresql",
+                    "NAME": DB_NAME,
+                    "USER": DB_USER,
+                    "PASSWORD": DB_PASSWORD or "",
+                    "HOST": DB_HOST or PG_HOST or _pg_host_default(),
+                    "PORT": DB_PORT,
+                    "CONN_MAX_AGE": _conn_max_age(),
+                    "OPTIONS": {"sslmode": _sslmode()},
+                }
             }
-        }
+        elif PG_NAME and PG_USER:
+            DATABASES = {
+                "default": {
+                    "ENGINE": "django.db.backends.postgresql",
+                    "NAME": PG_NAME,
+                    "USER": PG_USER,
+                    "PASSWORD": PG_PASSWORD or "",
+                    "HOST": PG_HOST or _pg_host_default(),
+                    "PORT": PG_PORT,
+                    "CONN_MAX_AGE": _conn_max_age(),
+                    "OPTIONS": {"sslmode": _sslmode()},
+                }
+            }
+        else:
+            # 안전 Fallback
+            DATABASES = {
+                "default": {
+                    "ENGINE": "django.db.backends.sqlite3",
+                    "NAME": str(BASE_DIR / "db.sqlite3"),
+                }
+            }
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 7) 패스워드 정책
@@ -482,12 +505,16 @@ CORS_ALLOW_HEADERS = (
 )
 CORS_ALLOW_CREDENTIALS = True
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 14) Storage: Static(WhiteNoise) + Media(S3, optional)
 # ─────────────────────────────────────────────────────────────────────────────
-from distutils.util import strtobool
+def _bool(key: str, default="False") -> bool:
+    v = str(env_get(key, default)).strip().lower()
+    return v in ("1", "true", "yes", "y", "on")
 
-USE_S3 = strtobool(env_get("USE_S3", "False"))
+
+USE_S3 = _bool("USE_S3", "False")
 
 if USE_S3:
     # django-storages 활성화

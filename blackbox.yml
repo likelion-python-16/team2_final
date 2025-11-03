@@ -1,11 +1,11 @@
-modules:
-  http_2xx:
-    prober: http
-    timeout: 5s
-    http:
-      method: GET
-      valid_status_codes: []   # 2xx 허용
-      preferred_ip_protocol: "ip4"
-      version: "HTTP/1.1"      # HTTP/1.1 강제
-      headers:
-        Host: "3.231.64.141"
+  blackbox:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox
+    ports:
+      - "9115:9115"
+    volumes:
+      # 루트의 blackbox.yml을 컨테이너 설정으로 마운트
+      - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    restart: unless-stopped

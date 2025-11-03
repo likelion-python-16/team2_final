@@ -1,13 +1,21 @@
-# Compose V2 (version 키 생략)
+# healthcheck 추가: prometheus, grafana, blackbox, node_exporter, cadvisor (기존 api, nginx, alertmanager도 유지/보강)
+# 로그 로테이션: 누락된 서비스까지 모두 적용(디스크 폭주 방지)
+# Prometheus 보존 정책: 그대로 유지(7d/5GB).
+# 경로 주의 코멘트: ./prometheus.yml vs ./prometheus/prometheus.yml 실제 파일 위치 확인 메모 추가.
+# Compose V2 - 프로덕션 배포 설정 (RDS 사용)
 
 services:
+  # ===== 로컬 DB는 RDS 사용으로 비활성화 =====
+  # RDS: team2-final-db.c6l0a4weokiv.us-east-1.rds.amazonaws.com
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     image: team2/api:dev
     container_name: team2_web
-    env_file: .env.prod
+    env_file: .env
+    # RDS 사용으로 로컬 DB 의존성 제거
     environment:
       IN_DOCKER: "1"
       DJANGO_SETTINGS_MODULE: team2_final.settings
@@ -21,6 +29,8 @@ services:
         --keep-alive=15
         --chdir=/app
         --access-logfile=-
+        --error-logfile=-
+        --log-level=info
     command: >
       bash -lc "
         python manage.py migrate --noinput &&
@@ -34,6 +44,14 @@ services:
       retries: 6
       start_period: 45s
     restart: unless-stopped
+    networks:
+      - team2_network
+    # 로그 크기 제한 (디스크 공간 절약)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   nginx:
     image: nginx:1.27
@@ -45,57 +63,112 @@ services:
       - "80:80"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/healthz || wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - team2_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: team2_final_prom
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d     # 7일 보관
+      - --storage.tsdb.retention.size=5GB    # 최대 5GB
+      - --web.enable-lifecycle
+      - --enable-feature=remote-write-receiver
+    volumes:
+      # ⚠️ 경로 확인: 실제 파일이 ./prometheus.yml 인지, ./prometheus/prometheus.yml 인지 프로젝트 트리에서 확인 필요
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - team2_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--data.retention=120h"  # 5일 보관
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/secrets/slack_webhook:/run/secrets/slack_webhook:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9093/-/ready >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 6
       start_period: 10s
     restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: team2_final_prom
-    depends_on:
-      api:
-        condition: service_healthy
-    ports:
-      - "9090:9090"
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--web.enable-lifecycle"            # 핫 리로드 지원
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./alerts:/etc/prometheus/rules:ro   # 알림 룰 마운트
-    restart: unless-stopped
-
-  alertmanager:
-    image: prom/alertmanager:latest
-    container_name: alertmanager
-    env_file: .env.prod                     # SLACK/DISCORD Webhook 등 환경변수 주입
-    command:
-      - "--config.file=/etc/alertmanager/alertmanager.yml"
-      - "--storage.path=/alertmanager"
-    volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager-data:/alertmanager
-    ports:
-      - "9093:9093"
-    restart: unless-stopped
+    networks:
+      - team2_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
-    depends_on:
-      - prometheus
     ports:
       - "3000:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin1234
+      GF_SECURITY_ADMIN_PASSWORD: 'StrongPass!1'
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q '\"database\":\"ok\"' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
     restart: unless-stopped
+    networks:
+      - team2_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
   blackbox:
     image: prom/blackbox-exporter:latest
@@ -104,8 +177,84 @@ services:
       - "9115:9115"
     volumes:
       - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9115/metrics >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
     restart: unless-stopped
+    networks:
+      - team2_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  node_exporter:
+    image: prom/node-exporter:latest
+    container_name: node_exporter
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - '/:/host:ro,rslave'
+      - '/proc:/host/proc:ro'
+      - '/sys:/host/sys:ro'
+    expose:
+      - "9100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9100/metrics >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - team2_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    volumes:
+      - '/:/rootfs:ro'
+      - '/var/run:/var/run:ro'
+      - '/sys:/sys:ro'
+      - '/var/lib/docker/:/var/lib/docker:ro'
+      - '/dev/disk/:/dev/disk:ro'
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/metrics >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - team2_network
+    # cAdvisor는 많은 메트릭을 생성하므로 로그 제한
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 volumes:
+  # postgres_data 제거 (RDS 사용)
   grafana-data:
   alertmanager-data:
+  prometheus-data:
+
+networks:
+  team2_network:
+    driver: bridge
