@@ -14,7 +14,7 @@ services:
       dockerfile: Dockerfile
     image: team2/api:dev
     container_name: team2_web
-    env_file: .env
+    env_file: .env.prod
     # RDS 사용으로 로컬 DB 의존성 제거
     environment:
       IN_DOCKER: "1"
@@ -150,6 +150,10 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s:%(http_port)s/grafana/"
       GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # 👇👇👇 추가
+      GF_AUTH_BASIC_ENABLED: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      # ☝️☝️☝️ 추가
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -242,7 +246,6 @@ services:
     restart: unless-stopped
     networks:
       - team2_network
-    # cAdvisor는 많은 메트릭을 생성하므로 로그 제한
     logging:
       driver: "json-file"
       options:
@@ -250,7 +253,6 @@ services:
         max-file: "2"
 
 volumes:
-  # postgres_data 제거 (RDS 사용)
   grafana-data:
   alertmanager-data:
   prometheus-data:

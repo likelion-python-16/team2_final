@@ -1,5 +1,6 @@
+// static/js/meals.js
 (function () {
-  console.log('[meals.js v5.3-fix] init');
+  console.log('[meals.js] initialized'); // ✅ 버전 표기 제거
 
   const widget = document.querySelector('[data-meal-photo-widget]');
   if (!widget) return;
@@ -31,8 +32,8 @@
   if (!input || !emptyState || !previewState || !previewImage) return;
 
   let revokeUrl = null;
-  let lastSavePayload = null; // 분석 응답의 커밋 페이로드
-  let lastPreviewPhotoUrl = null; // 프리뷰에서 받은 photo_url
+  let lastSavePayload = null;
+  let lastPreviewPhotoUrl = null;
 
   // ---------- utils ----------
   const mealTypeClass = (type) => {
@@ -217,7 +218,6 @@
         const calText = formatNumber(macros.calories);
         const caloriesHtml = calText !== '-' ? `${caloriesHtmlSafe(calText)} cal` : '-';
 
-        // 서버가 돌려준 사진 URL 우선 → 없으면 프리뷰
         const serverPhotoUrl = data.photo_url || null;
         const thumbHtml = serverPhotoUrl
           ? `<img src="${serverPhotoUrl}" alt="${escapeHtml(lastSavePayload.label_ko || '식사 사진')}">`
@@ -245,7 +245,6 @@
         attachDeleteHandlers(card);
       }
 
-      // 완료 처리
       commitButton.hidden = true;
       lastSavePayload = null;
     } catch (err) {
@@ -306,7 +305,6 @@
       if (resultLabel) resultLabel.textContent = data.label ? `(${data.label})` : '';
       if (resultConfidence) resultConfidence.textContent = (data.confidence != null) ? `${data.confidence}% 신뢰도` : '';
 
-      // 프리뷰 url(서버 저장본)이 있으면 프리뷰 이미지 대체
       lastPreviewPhotoUrl = data.photo_url || null;
       if (lastPreviewPhotoUrl) {
         previewImage.src = lastPreviewPhotoUrl;
@@ -326,7 +324,7 @@
         if (data.source === 'default')       { resultNote.textContent = '정확한 매칭을 찾지 못해 기본 열량 정보를 사용했습니다.'; resultNote.hidden = false; }
         else if (data.source === 'csv_estimate') { resultNote.textContent = 'CSV 평균값(가늠)으로 추정했습니다.'; resultNote.hidden = false; }
         else if (data.source === 'fallback') { resultNote.textContent = '대표 음식 영양 정보를 사용했습니다.'; resultNote.hidden = false; }
-        else if (data.source === 'unmatched'){ resultNote.textContent = '일치하는 음식 데이터를 찾지 못했어요.'; resultNote.hidden = false; }
+        else if (data.source === 'unmatched'){ resultNote.textContent = '일치하는 음식 데이터를 찾지 못했어요.'; resultNote.hidden = true; }
         else { resultNote.textContent = ''; resultNote.hidden = true; }
       }
 

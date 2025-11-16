@@ -249,7 +249,9 @@
 
 {% block extra_js %}
   {{ block.super }}
-  <script src="{% static 'js/meals.js' %}?v=5.3-fix"></script>
+  {# ✅ 버전 쿼리 스트링 제거 #}
+  <script src="{% static 'js/meals.js' %}"></script>
+
   <script>
   /* 페이지 로드 시 요약 재조회: JWT는 api.authFetch 사용 */
   document.addEventListener("DOMContentLoaded", async () => {

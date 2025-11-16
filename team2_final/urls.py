@@ -1,4 +1,3 @@
-# team2_final/urls.py
 from pathlib import Path
 
 from django.conf import settings
@@ -24,7 +23,7 @@ from tasks import urls as tasks_urls
 from users import urls as users_urls
 from users import views as users_views
 
-# 로컬 뷰
+# 로컬 전용 뷰
 from .auth_views import (
     PublicTokenObtainPairView,
     PublicTokenRefreshView,
@@ -51,12 +50,10 @@ def api_docs(_request):
 
 urlpatterns = [
     # ---------- 기본 페이지 ----------
-    path("", landing, name="landing"),  # 루트는 landing만 사용
-    # 편의 리다이렉트: /login/ → /accounts/login/
+    path("", landing, name="landing"),
     path("login/", RedirectView.as_view(url="/accounts/login/", permanent=False)),
-    # (기존) /users/login/ 도 /accounts/login/ 로 정리
     path("users/login/", RedirectView.as_view(url="/accounts/login/", permanent=False)),
-    # ✅ 실제 LogoutView 경로(POST 전용). 템플릿에서는 반드시 POST 폼으로 호출할 것.
+    # Logout (POST 전용)
     path(
         "logout/",
         LogoutView.as_view(next_page=getattr(settings, "LOGOUT_REDIRECT_URL", "/")),
@@ -66,22 +63,19 @@ urlpatterns = [
     path(
         "favicon.ico", RedirectView.as_view(url="/static/favicon.ico", permanent=False)
     ),
-    # ---------- 헬스체크 / 오늘 요약 ----------
+    # ---------- 헬스체크 ----------
     path("healthz/", healthz, name="healthz"),
     path("readyz/", readyz, name="readyz"),
-    path("healthz", healthz),  # 슬래시 없는 버전도 허용
+    path("healthz", healthz),
     path("readyz", readyz),
+    # ---------- 토큰 & 요약 ----------
     path("auth/simple-token", simple_token, name="simple_token"),
-    # 요약 엔드포인트 (둘 다 유지: 하위호환)
     path("api/today/", today_summary, name="today-summary"),
     path("api/today/summary/", today_summary, name="today-summary-alias"),
-    # 추가 상태
     path("api/health/", api_root_healthcheck, name="api_root_healthcheck"),
     # ---------- Admin / 계정 ----------
     path("admin/", admin.site.urls),
-    path(
-        "accounts/", include("django.contrib.auth.urls")
-    ),  # /accounts/login/, /accounts/logout/ (POST)
+    path("accounts/", include("django.contrib.auth.urls")),
     # ---------- 유저 개별 페이지 ----------
     path("setup/", users_views.setup_view, name="user_setup"),
     path("profile/", users_views.profile_view, name="user_profile"),
@@ -91,12 +85,10 @@ urlpatterns = [
         name="user_signup",
     ),
     # ---------- JWT (기본 SimpleJWT) ----------
-    # 내부 개발/관리자용, SessionAuth/CSRF 영향 받을 수 있음
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
-    # ---------- Public JWT (CSRF 비활성화) ----------
-    # 프론트/모바일/외부 클라이언트 전용
+    # ---------- Public JWT ----------
     path(
         "auth/token/",
         PublicTokenObtainPairView.as_view(),
@@ -113,7 +105,6 @@ urlpatterns = [
         name="public_token_verify",
     ),
     # ---------- API 라우트 ----------
-    # /api/users/ ... (UserViewSet)
     path(
         "api/",
         include((users_urls.api_urlpatterns, "users_api"), namespace="users_api"),
@@ -126,19 +117,15 @@ urlpatterns = [
     path("api/", include("intakes.urls")),
     path("api/", include("feedbacks.urls")),
     path("api/ai/", include("ai.urls")),
-    # ---------- AUTH 라우트 (회원가입 API) ----------
-    # ✅ /auth/register/ 열기
+    # ---------- AUTH 라우트 ----------
     path(
         "auth/",
         include((users_urls.auth_urlpatterns, "users_auth"), namespace="users_auth"),
     ),
     # ---------- 페이지 라우트 ----------
-    # OAuth/Logout 등: /users/oauth/... , /users/logout/
     path("users/", include((users_urls.page_urlpatterns, "users"), namespace="users")),
-    # ---------- Tasks 페이지 라우트 (네임스페이스 보장) ----------
-    # reverse('tasks:dashboard') 등을 위해 반드시 등록
     path("tasks/", include((tasks_urls.page_urlpatterns, "tasks"), namespace="tasks")),
-    # ---------- 레거시/오타 경로 흡수 ----------
+    # ---------- 레거시 흡수 ----------
     re_path(
         r"^task/(?P<rest>.*)$",
         RedirectView.as_view(url="/tasks/%(rest)s", permanent=False),
@@ -147,16 +134,20 @@ urlpatterns = [
         "task/dashboard/",
         RedirectView.as_view(url="/tasks/dashboard/", permanent=False),
     ),
-    # ---------- OpenAPI / 문서 ----------
+    # ---------- OpenAPI ----------
     path("openapi.json", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path("docs/raw", api_docs, name="api_docs"),
 ]
 
-# ---------- 개발용 미디어 서빙 (업로드 이미지 표시용) ----------
+# ---------- 개발용 미디어 ----------
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
+# ---------- Prometheus 계측 ----------
+# PROM_ENABLED=True 일 때만 /metrics 활성화
 if getattr(settings, "PROM_ENABLED", False):
-    urlpatterns += [path("", include("django_prometheus.urls"))]
+    urlpatterns += [
+        path("", include("django_prometheus.urls")),
+    ]
