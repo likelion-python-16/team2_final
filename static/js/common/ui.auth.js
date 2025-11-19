@@ -6,27 +6,33 @@
   const $cancel = document.getElementById("auth-modal-cancel");
 
   function openAuthModal(next) {
-    try { $form.elements.next.value = next || location.pathname + location.search; } catch {}
-    $err.textContent = "";
-    $modal.classList.remove("hidden");
-    $form.elements.username?.focus();
+    try {
+      $form.elements.next.value = next || location.pathname + location.search;
+    } catch {}
+    if ($err) $err.textContent = "";
+    if ($modal) $modal.classList.remove("hidden");
+    try {
+      $form.elements.username?.focus();
+    } catch {}
     document.documentElement.style.overflow = "hidden";
   }
+
   function closeAuthModal() {
-    $modal.classList.add("hidden");
+    if ($modal) $modal.classList.add("hidden");
     document.documentElement.style.overflow = "";
   }
 
-  // 로그인 시도
+  // 로그인 시도 (일반 아이디/비밀번호)
   async function submitLogin(e) {
     e.preventDefault();
-    $err.textContent = "";
+    if ($err) $err.textContent = "";
+
     const username = $form.elements.username.value.trim();
     const password = $form.elements.password.value;
     const next = $form.elements.next.value || "/";
 
     if (!username || !password) {
-      $err.textContent = "아이디/비밀번호를 입력하세요.";
+      if ($err) $err.textContent = "아이디/비밀번호를 입력하세요.";
       return;
     }
 
@@ -38,13 +44,15 @@
         body: JSON.stringify({ username, password }),
         credentials: "same-origin",
       });
+
       if (!res.ok) {
-        $err.textContent = "로그인 실패. 아이디/비밀번호를 확인해 주세요.";
+        if ($err) $err.textContent = "로그인 실패. 아이디/비밀번호를 확인해 주세요.";
         return;
       }
+
       const data = await res.json();
 
-      // 2) 저장 + 타이머 스케줄(우리 api.js의 helper 이용)
+      // 2) 저장 + 타이머 스케줄(our api.js helper)
       window.api?.loginSuccess?.({ access: data.access, refresh: data.refresh });
 
       // 3) 원래 위치로 복귀
@@ -52,7 +60,7 @@
       location.href = next;
     } catch (err) {
       console.error(err);
-      $err.textContent = "네트워크 오류가 발생했습니다.";
+      if ($err) $err.textContent = "네트워크 오류가 발생했습니다.";
     }
   }
 
@@ -69,4 +77,54 @@
 
   // 전역 노출(필요하면 수동 열기)
   window.AuthModal = { open: openAuthModal, close: closeAuthModal };
+
+  // ============================
+  // 🔍 시연용: 소셜 로그인 디버깅
+  // ============================
+  function logOAuthStart(provider, href) {
+    console.log(`🔥 [${provider}] 소셜 로그인 시작`);
+    console.log("➡️ redirect URL:", href);
+
+    try {
+      const u = new URL(href, window.location.origin);
+      const p = u.searchParams;
+      console.log("  response_type:", p.get("response_type"));
+      console.log("  client_id:", p.get("client_id"));
+      console.log("  redirect_uri:", p.get("redirect_uri"));
+      console.log("  state:", p.get("state"));
+    } catch (e) {
+      console.warn("  URL 파싱 실패:", e);
+    }
+
+    console.log("---------------------------");
+  }
+
+  function attachOAuthDebug() {
+    // 템플릿에서:
+    // <a href="{% url 'users:kakao_login' %}" data-oauth="kakao">...</a>
+    // <a href="{% url 'users:naver_login' %}" data-oauth="naver">...</a>
+    const kakao = document.querySelector('[data-oauth="kakao"]');
+    const naver = document.querySelector('[data-oauth="naver"]');
+
+    if (kakao) {
+      kakao.addEventListener("click", () => {
+        const href = kakao.getAttribute("href") || "";
+        logOAuthStart("KAKAO", href);
+      });
+    }
+
+    if (naver) {
+      naver.addEventListener("click", () => {
+        const href = naver.getAttribute("href") || "";
+        logOAuthStart("NAVER", href);
+      });
+    }
+  }
+
+  // DOM 로드 상태에 따라 디버그 이벤트 바인딩
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", attachOAuthDebug);
+  } else {
+    attachOAuthDebug();
+  }
 })();

@@ -18,13 +18,23 @@
           <p>Sign in to your account</p>
         </header>
 
-        <!-- 소셜 로그인 유지 -->
+        <!-- 소셜 로그인 -->
         <div class="auth-oauth" style="margin-bottom: .75rem;">
-          <a class="oauth-button oauth-button--kakao" href="{% url 'users:kakao_login' %}" aria-label="카카오 로그인">
+          <a
+            class="oauth-button oauth-button--kakao"
+            href="{% url 'users:kakao_login' %}"
+            aria-label="카카오 로그인"
+            data-oauth="kakao"
+          >
             <span class="oauth-button__icon oauth-button__icon--kakao" aria-hidden="true">K</span>
             <span>Continue with Kakao</span>
           </a>
-          <a class="oauth-button oauth-button--naver" href="{% url 'users:naver_login' %}" aria-label="네이버 로그인">
+          <a
+            class="oauth-button oauth-button--naver"
+            href="{% url 'users:naver_login' %}"
+            aria-label="네이버 로그인"
+            data-oauth="naver"
+          >
             <span class="oauth-button__icon" aria-hidden="true">
               <img src="{% static 'img/naver.svg' %}" alt="Naver" />
             </span>
